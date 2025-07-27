@@ -1,0 +1,266 @@
+"""
+QStock数据源适配器
+
+提供QStock数据源的统一接口实现。
+"""
+
+import logging
+from datetime import date
+from typing import Any, Dict, List, Union
+
+from .base import BaseDataSource, DataSourceDataError
+
+logger = logging.getLogger(__name__)
+
+
+class QStockAdapter(BaseDataSource):
+    """QStock数据源适配器"""
+
+    def __init__(self, config: Dict[str, Any] = None):
+        """
+        初始化QStock适配器
+
+        Args:
+            config: 配置参数
+        """
+        super().__init__("qstock", config)
+        self._qstock = None
+
+        # QStock特定配置
+        self.token = self.config.get("token", "")
+
+    def connect(self) -> bool:
+        """连接QStock"""
+        import qstock as qs
+
+        self._qstock = qs
+        if self.token:
+            qs.set_token(self.token)
+        self._connected = True
+        return True
+
+    def disconnect(self):
+        """断开QStock连接"""
+        self._qstock = None
+        self._connected = False
+        logger.info("QStock连接已断开")
+
+    def is_connected(self) -> bool:
+        """检查连接状态"""
+        return self._connected and self._qstock is not None
+
+    def get_daily_data(
+        self,
+        symbol: str,
+        start_date: Union[str, date],
+        end_date: Union[str, date] = None,
+    ) -> Dict[str, Any]:
+        """
+        获取日线数据
+
+        Args:
+            symbol: 股票代码 (如: 000001.SZ)
+            start_date: 开始日期
+            end_date: 结束日期
+
+        Returns:
+            Dict[str, Any]: 日线数据
+        """
+        if not self.is_connected():
+            self.connect()
+
+        symbol = self._normalize_symbol(symbol)
+        start_date = self._normalize_date(start_date)
+        end_date = self._normalize_date(end_date) if end_date else start_date
+
+        def _fetch_data():
+            # 转换为QStock格式
+            qs_symbol = self._convert_to_qstock_symbol(symbol)
+
+            # 获取日线数据
+            df = self._qstock.get_data(
+                qs_symbol, start=start_date, end=end_date, fqt=1  # 前复权
+            )
+
+            return df
+
+        return self._retry_request(_fetch_data)
+
+    def get_minute_data(
+        self, symbol: str, trade_date: Union[str, date], frequency: str = "5m"
+    ) -> Dict[str, Any]:
+        """
+        获取分钟线数据
+
+        Args:
+            symbol: 股票代码
+            trade_date: 交易日期
+            frequency: 频率 (1m/5m/15m/30m/60m)
+
+        Returns:
+            Dict[str, Any]: 分钟线数据
+        """
+        if not self.is_connected():
+            self.connect()
+
+        symbol = self._normalize_symbol(symbol)
+        trade_date = self._normalize_date(trade_date)
+        frequency = self._validate_frequency(frequency)
+
+        def _fetch_data():
+            # 转换为QStock格式
+            qs_symbol = self._convert_to_qstock_symbol(symbol)
+
+            # 转换频率
+            freq_map = {
+                "1m": "1min",
+                "5m": "5min",
+                "15m": "15min",
+                "30m": "30min",
+                "60m": "60min",
+            }
+
+            qs_freq = freq_map[frequency]
+
+            # 获取分钟线数据
+            df = self._qstock.get_data(
+                qs_symbol, start=trade_date, end=trade_date, klt=qs_freq, fqt=1
+            )
+
+            return df
+
+        return self._retry_request(_fetch_data)
+
+    def get_stock_info(
+        self, symbol: str = None
+    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        """
+        获取股票基础信息
+
+        Args:
+            symbol: 股票代码，为None时返回所有股票
+
+        Returns:
+            Union[Dict, List[Dict]]: 股票信息
+        """
+        if not self.is_connected():
+            self.connect()
+
+        def _fetch_data():
+            if symbol:
+                # 获取单个股票信息
+                symbol_norm = self._normalize_symbol(symbol)
+                qs_symbol = self._convert_to_qstock_symbol(symbol_norm)
+
+                # QStock获取股票信息的方法
+                info = self._qstock.get_stock_info(qs_symbol)
+                return info
+            else:
+                # 获取所有股票列表
+                stock_list = self._qstock.get_stock_list()
+                return stock_list
+
+        return self._retry_request(_fetch_data)
+
+    def get_fundamentals(
+        self, symbol: str, report_date: Union[str, date], report_type: str = "Q4"
+    ) -> Dict[str, Any]:
+        """
+        获取财务数据
+
+        Args:
+            symbol: 股票代码
+            report_date: 报告期
+            report_type: 报告类型
+
+        Returns:
+            Dict[str, Any]: 财务数据
+        """
+        if not self.is_connected():
+            self.connect()
+
+        symbol = self._normalize_symbol(symbol)
+        report_date = self._normalize_date(report_date)
+
+        def _fetch_data():
+            try:
+                qs_symbol = self._convert_to_qstock_symbol(symbol)
+
+                # 获取财务数据
+                df = self._qstock.get_financial_data(qs_symbol, report_date[:4])
+
+                if df.empty:
+                    raise DataSourceDataError(f"未获取到财务数据: {symbol}")
+
+                return df
+
+            except Exception as e:
+                logger.error(f"QStock获取财务数据失败 {symbol}: {e}")
+                raise DataSourceDataError(f"获取财务数据失败: {e}")
+
+        return self._retry_request(_fetch_data)
+
+    def get_block_data(self, block_type: str = "industry") -> List[Dict[str, Any]]:
+        """
+        获取板块数据 (QStock特色功能)
+
+        Args:
+            block_type: 板块类型 (industry/concept/area)
+
+        Returns:
+            List[Dict]: 板块数据
+        """
+        if not self.is_connected():
+            self.connect()
+
+        def _fetch_data():
+            try:
+                # 获取板块数据
+                df = self._qstock.get_block_data(block_type)
+                return df
+
+            except Exception as e:
+                logger.error(f"QStock获取板块数据失败 {block_type}: {e}")
+                raise DataSourceDataError(f"获取板块数据失败: {e}")
+
+        return self._retry_request(_fetch_data)
+
+    def get_capital_flow(
+        self, symbol: str, trade_date: Union[str, date]
+    ) -> Dict[str, Any]:
+        """
+        获取资金流向数据 (QStock特色功能)
+
+        Args:
+            symbol: 股票代码
+            trade_date: 交易日期
+
+        Returns:
+            Dict: 资金流向数据
+        """
+        if not self.is_connected():
+            self.connect()
+
+        symbol = self._normalize_symbol(symbol)
+        trade_date = self._normalize_date(trade_date)
+
+        def _fetch_data():
+            try:
+                qs_symbol = self._convert_to_qstock_symbol(symbol)
+
+                # 获取资金流向数据
+                df = self._qstock.get_capital_flow(qs_symbol, trade_date)
+                return df
+
+            except Exception as e:
+                logger.error(f"QStock获取资金流向失败 {symbol}: {e}")
+                raise DataSourceDataError(f"获取资金流向失败: {e}")
+
+        return self._retry_request(_fetch_data)
+
+    def _convert_to_qstock_symbol(self, symbol: str) -> str:
+        """转换为QStock股票代码格式"""
+        # QStock通常使用6位数字代码
+        if "." in symbol:
+            return symbol.split(".")[0]
+        return symbol

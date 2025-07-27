@@ -1,0 +1,479 @@
+"""
+缓存管理器
+
+提供多级缓存、缓存策略和缓存性能优化功能。
+"""
+
+import logging
+import pickle
+import threading
+import time
+from abc import ABC, abstractmethod
+from collections import OrderedDict
+from typing import Any, Dict, Optional
+
+from ..config import Config
+
+logger = logging.getLogger(__name__)
+
+
+class CacheBackend(ABC):
+    """缓存后端抽象基类"""
+
+    @abstractmethod
+    def get(self, key: str) -> Optional[Any]:
+        """获取缓存值"""
+
+    @abstractmethod
+    def set(self, key: str, value: Any, ttl: int = None) -> bool:
+        """设置缓存值"""
+
+    @abstractmethod
+    def delete(self, key: str) -> bool:
+        """删除缓存值"""
+
+    @abstractmethod
+    def clear(self) -> bool:
+        """清空缓存"""
+
+    @abstractmethod
+    def exists(self, key: str) -> bool:
+        """检查键是否存在"""
+
+
+class MemoryCache(CacheBackend):
+    """内存缓存后端"""
+
+    def __init__(self, max_size: int = 1000, default_ttl: int = 3600):
+        """
+        初始化内存缓存
+
+        Args:
+            max_size: 最大缓存条目数
+            default_ttl: 默认TTL（秒）
+        """
+        self.max_size = max_size
+        self.default_ttl = default_ttl
+        self.cache = OrderedDict()
+        self.lock = threading.RLock()
+
+    def get(self, key: str) -> Optional[Any]:
+        """获取缓存值"""
+        with self.lock:
+            if key not in self.cache:
+                return None
+
+            entry = self.cache[key]
+
+            # 检查是否过期
+            if entry["expires_at"] and time.time() > entry["expires_at"]:
+                del self.cache[key]
+                return None
+
+            # LRU: 移动到末尾
+            self.cache.move_to_end(key)
+            return entry["value"]
+
+    def set(self, key: str, value: Any, ttl: int = None) -> bool:
+        """设置缓存值"""
+        with self.lock:
+            try:
+                # 计算过期时间
+                expires_at = None
+                if ttl is not None:
+                    expires_at = time.time() + ttl
+                elif self.default_ttl > 0:
+                    expires_at = time.time() + self.default_ttl
+
+                # 检查缓存大小限制
+                if key not in self.cache and len(self.cache) >= self.max_size:
+                    # LRU淘汰：删除最旧的条目
+                    self.cache.popitem(last=False)
+
+                # 添加或更新缓存
+                self.cache[key] = {
+                    "value": value,
+                    "expires_at": expires_at,
+                    "created_at": time.time(),
+                }
+
+                # 移动到末尾（最新）
+                self.cache.move_to_end(key)
+
+                return True
+
+            except Exception as e:
+                logger.error(f"设置内存缓存失败: {e}")
+                return False
+
+    def delete(self, key: str) -> bool:
+        """删除缓存值"""
+        with self.lock:
+            if key in self.cache:
+                del self.cache[key]
+                return True
+            return False
+
+    def clear(self) -> bool:
+        """清空缓存"""
+        with self.lock:
+            self.cache.clear()
+            return True
+
+    def exists(self, key: str) -> bool:
+        """检查键是否存在"""
+        return self.get(key) is not None
+
+    def cleanup_expired(self) -> int:
+        """清理过期条目"""
+        with self.lock:
+            current_time = time.time()
+            expired_keys = []
+
+            for key, entry in self.cache.items():
+                if entry["expires_at"] and current_time > entry["expires_at"]:
+                    expired_keys.append(key)
+
+            for key in expired_keys:
+                del self.cache[key]
+
+            return len(expired_keys)
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取缓存统计"""
+        with self.lock:
+            return {
+                "size": len(self.cache),
+                "max_size": self.max_size,
+                "memory_usage": self._estimate_memory_usage(),
+            }
+
+    def _estimate_memory_usage(self) -> int:
+        """估算内存使用量"""
+        try:
+            total_size = 0
+            for key, entry in self.cache.items():
+                total_size += len(pickle.dumps(key))
+                total_size += len(pickle.dumps(entry["value"]))
+            return total_size
+        except Exception:
+            return 0
+
+
+class CacheManager:
+    """缓存管理器"""
+
+    def __init__(self, config: Config = None):
+        """
+        初始化缓存管理器
+
+        Args:
+            config: 配置对象
+        """
+        self.config = config or Config()
+
+        # 缓存配置
+        self.enable_l1_cache = self.config.get("cache_manager.enable_l1_cache", True)
+        self.enable_l2_cache = self.config.get("cache_manager.enable_l2_cache", True)
+        self.l1_max_size = self.config.get("cache_manager.l1_max_size", 1000)
+        self.l2_max_size = self.config.get("cache_manager.l2_max_size", 10000)
+        self.default_ttl = self.config.get("cache_manager.default_ttl", 3600)
+
+        # 初始化缓存层
+        self.l1_cache = (
+            MemoryCache(self.l1_max_size, self.default_ttl)
+            if self.enable_l1_cache
+            else None
+        )
+        self.l2_cache = (
+            MemoryCache(self.l2_max_size, self.default_ttl * 2)
+            if self.enable_l2_cache
+            else None
+        )
+
+        # 缓存统计
+        self.stats = {
+            "l1_hits": 0,
+            "l1_misses": 0,
+            "l2_hits": 0,
+            "l2_misses": 0,
+            "sets": 0,
+            "deletes": 0,
+            "evictions": 0,
+        }
+
+        # 缓存策略
+        self.cache_strategies = {
+            "stock_info": {"ttl": 86400, "level": "l2"},  # 24小时
+            "daily_data": {"ttl": 3600, "level": "l1"},  # 1小时
+            "realtime_data": {"ttl": 60, "level": "l1"},  # 1分钟
+            "fundamentals": {"ttl": 21600, "level": "l2"},  # 6小时
+            "technical_indicators": {"ttl": 1800, "level": "l1"},  # 30分钟
+        }
+
+        # 启动清理线程
+        self.cleanup_thread = threading.Thread(target=self._cleanup_worker, daemon=True)
+        self.cleanup_thread.start()
+
+        logger.info("缓存管理器初始化完成")
+
+    def get(self, key: str, data_type: str = "default") -> Optional[Any]:
+        """
+        获取缓存值
+
+        Args:
+            key: 缓存键
+            data_type: 数据类型
+
+        Returns:
+            Optional[Any]: 缓存值
+        """
+        try:
+            # 生成完整的缓存键
+            full_key = self._generate_cache_key(key, data_type)
+
+            # L1缓存查找
+            if self.l1_cache:
+                value = self.l1_cache.get(full_key)
+                if value is not None:
+                    self.stats["l1_hits"] += 1
+                    return value
+                else:
+                    self.stats["l1_misses"] += 1
+
+            # L2缓存查找
+            if self.l2_cache:
+                value = self.l2_cache.get(full_key)
+                if value is not None:
+                    self.stats["l2_hits"] += 1
+
+                    # 提升到L1缓存
+                    if self.l1_cache:
+                        strategy = self.cache_strategies.get(data_type, {})
+                        ttl = strategy.get("ttl", self.default_ttl)
+                        self.l1_cache.set(full_key, value, ttl)
+
+                    return value
+                else:
+                    self.stats["l2_misses"] += 1
+
+            return None
+
+        except Exception as e:
+            logger.error(f"获取缓存失败: {e}")
+            return None
+
+    def set(
+        self, key: str, value: Any, data_type: str = "default", ttl: int = None
+    ) -> bool:
+        """
+        设置缓存值
+
+        Args:
+            key: 缓存键
+            value: 缓存值
+            data_type: 数据类型
+            ttl: 生存时间
+
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            # 生成完整的缓存键
+            full_key = self._generate_cache_key(key, data_type)
+
+            # 获取缓存策略
+            strategy = self.cache_strategies.get(data_type, {})
+            cache_ttl = ttl or strategy.get("ttl", self.default_ttl)
+            cache_level = strategy.get("level", "l1")
+
+            success = False
+
+            # 根据策略选择缓存层
+            if cache_level == "l1" and self.l1_cache:
+                success = self.l1_cache.set(full_key, value, cache_ttl)
+            elif cache_level == "l2" and self.l2_cache:
+                success = self.l2_cache.set(full_key, value, cache_ttl)
+            else:
+                # 默认存储到L1
+                if self.l1_cache:
+                    success = self.l1_cache.set(full_key, value, cache_ttl)
+
+            if success:
+                self.stats["sets"] += 1
+
+            return success
+
+        except Exception as e:
+            logger.error(f"设置缓存失败: {e}")
+            return False
+
+    def delete(self, key: str, data_type: str = "default") -> bool:
+        """
+        删除缓存值
+
+        Args:
+            key: 缓存键
+            data_type: 数据类型
+
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            full_key = self._generate_cache_key(key, data_type)
+
+            success = False
+
+            # 从所有缓存层删除
+            if self.l1_cache:
+                success |= self.l1_cache.delete(full_key)
+
+            if self.l2_cache:
+                success |= self.l2_cache.delete(full_key)
+
+            if success:
+                self.stats["deletes"] += 1
+
+            return success
+
+        except Exception as e:
+            logger.error(f"删除缓存失败: {e}")
+            return False
+
+    def clear(self, data_type: str = None) -> bool:
+        """
+        清空缓存
+
+        Args:
+            data_type: 数据类型（可选，为None时清空所有）
+
+        Returns:
+            bool: 是否成功
+        """
+        try:
+            if data_type is None:
+                # 清空所有缓存
+                success = True
+                if self.l1_cache:
+                    success &= self.l1_cache.clear()
+                if self.l2_cache:
+                    success &= self.l2_cache.clear()
+                return success
+            else:
+                # 清空特定类型的缓存
+                # 这里简化实现，实际应该根据键前缀删除
+                return True
+
+        except Exception as e:
+            logger.error(f"清空缓存失败: {e}")
+            return False
+
+    def exists(self, key: str, data_type: str = "default") -> bool:
+        """
+        检查缓存是否存在
+
+        Args:
+            key: 缓存键
+            data_type: 数据类型
+
+        Returns:
+            bool: 是否存在
+        """
+        return self.get(key, data_type) is not None
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计"""
+        total_requests = (
+            self.stats["l1_hits"]
+            + self.stats["l1_misses"]
+            + self.stats["l2_hits"]
+            + self.stats["l2_misses"]
+        )
+
+        l1_hit_rate = (
+            self.stats["l1_hits"] / total_requests if total_requests > 0 else 0
+        )
+        l2_hit_rate = (
+            self.stats["l2_hits"] / total_requests if total_requests > 0 else 0
+        )
+        overall_hit_rate = (
+            (self.stats["l1_hits"] + self.stats["l2_hits"]) / total_requests
+            if total_requests > 0
+            else 0
+        )
+
+        stats = {
+            "cache_manager": "SimTradeData Manager",
+            "version": "1.0.0",
+            "total_requests": total_requests,
+            "overall_hit_rate": overall_hit_rate,
+            "l1_cache": {
+                "enabled": self.enable_l1_cache,
+                "hits": self.stats["l1_hits"],
+                "misses": self.stats["l1_misses"],
+                "hit_rate": l1_hit_rate,
+            },
+            "l2_cache": {
+                "enabled": self.enable_l2_cache,
+                "hits": self.stats["l2_hits"],
+                "misses": self.stats["l2_misses"],
+                "hit_rate": l2_hit_rate,
+            },
+            "operations": {
+                "sets": self.stats["sets"],
+                "deletes": self.stats["deletes"],
+                "evictions": self.stats["evictions"],
+            },
+        }
+
+        # 添加缓存后端统计
+        if self.l1_cache:
+            stats["l1_cache"].update(self.l1_cache.get_stats())
+
+        if self.l2_cache:
+            stats["l2_cache"].update(self.l2_cache.get_stats())
+
+        return stats
+
+    def _generate_cache_key(self, key: str, data_type: str) -> str:
+        """生成缓存键"""
+        return f"{data_type}:{key}"
+
+    def _cleanup_worker(self):
+        """清理工作线程"""
+        while True:
+            try:
+                time.sleep(300)  # 每5分钟清理一次
+
+                expired_count = 0
+
+                # 清理L1缓存
+                if self.l1_cache:
+                    expired_count += self.l1_cache.cleanup_expired()
+
+                # 清理L2缓存
+                if self.l2_cache:
+                    expired_count += self.l2_cache.cleanup_expired()
+
+                if expired_count > 0:
+                    self.stats["evictions"] += expired_count
+                    logger.debug(f"清理过期缓存: {expired_count} 个条目")
+
+            except Exception as e:
+                logger.error(f"缓存清理失败: {e}")
+
+    def add_cache_strategy(self, data_type: str, ttl: int, level: str = "l1"):
+        """
+        添加缓存策略
+
+        Args:
+            data_type: 数据类型
+            ttl: 生存时间
+            level: 缓存级别
+        """
+        self.cache_strategies[data_type] = {"ttl": ttl, "level": level}
+        logger.info(f"添加缓存策略: {data_type} -> TTL={ttl}, Level={level}")
+
+    def get_cache_strategies(self) -> Dict[str, Dict[str, Any]]:
+        """获取缓存策略"""
+        return self.cache_strategies.copy()

@@ -1,0 +1,524 @@
+# SimTradeData API 参考文档
+
+## 📖 概述
+
+SimTradeData 提供多种API接口，包括PTrade兼容接口、REST API和Python API。本文档详细介绍了所有可用的API接口和使用方法。
+
+## 🐍 Python API
+
+### 核心API管理器
+
+#### APIManager
+
+主要的数据访问接口，提供统一的数据操作方法。
+
+```python
+from simtradedata.api import APIManager
+from simtradedata.database import DatabaseManager
+from simtradedata.cache import CacheManager
+from simtradedata.config import Config
+
+# 初始化
+config = Config()
+db_manager = DatabaseManager(config)
+cache_manager = CacheManager(config)
+api_manager = APIManager(db_manager, cache_manager, config)
+```
+
+##### 股票数据方法
+
+**get_daily_data(symbol, start_date, end_date)**
+- 获取日线数据
+- 参数:
+  - `symbol` (str): 股票代码，如 '000001.SZ'
+  - `start_date` (str): 开始日期，格式 'YYYY-MM-DD'
+  - `end_date` (str): 结束日期，格式 'YYYY-MM-DD'
+- 返回: pandas.DataFrame
+
+```python
+data = api_manager.get_daily_data('000001.SZ', '2024-01-01', '2024-01-31')
+```
+
+**get_minute_data(symbol, start_datetime, end_datetime, frequency)**
+- 获取分钟数据
+- 参数:
+  - `symbol` (str): 股票代码
+  - `start_datetime` (str): 开始时间，格式 'YYYY-MM-DD HH:MM:SS'
+  - `end_datetime` (str): 结束时间，格式 'YYYY-MM-DD HH:MM:SS'
+  - `frequency` (str): 频率，'1m', '5m', '15m', '30m', '60m'
+- 返回: pandas.DataFrame
+
+```python
+data = api_manager.get_minute_data('000001.SZ', '2024-01-01 09:30:00', '2024-01-01 15:00:00', '5m')
+```
+
+**get_realtime_data(symbols)**
+- 获取实时数据
+- 参数:
+  - `symbols` (list): 股票代码列表
+- 返回: pandas.DataFrame
+
+```python
+data = api_manager.get_realtime_data(['000001.SZ', '000002.SZ'])
+```
+
+**store_daily_data(data)**
+- 存储日线数据
+- 参数:
+  - `data` (pandas.DataFrame): 日线数据
+- 返回: bool
+
+```python
+import pandas as pd
+data = pd.DataFrame({
+    'symbol': ['000001.SZ'],
+    'trade_date': ['2024-01-20'],
+    'open': [10.0],
+    'high': [10.5],
+    'low': [9.8],
+    'close': [10.2],
+    'volume': [1000000]
+})
+api_manager.store_daily_data(data)
+```
+
+##### 股票信息方法
+
+**get_stock_list(market, status)**
+- 获取股票列表
+- 参数:
+  - `market` (str, optional): 市场代码，'SZ', 'SS', 'HK', 'US'
+  - `status` (str, optional): 状态，'L'(上市), 'D'(退市)
+- 返回: pandas.DataFrame
+
+```python
+stocks = api_manager.get_stock_list(market='SZ', status='L')
+```
+
+**get_stock_info(symbol)**
+- 获取股票基本信息
+- 参数:
+  - `symbol` (str): 股票代码
+- 返回: pandas.DataFrame
+
+```python
+info = api_manager.get_stock_info('000001.SZ')
+```
+
+**store_stock_info(data)**
+- 存储股票基本信息
+- 参数:
+  - `data` (pandas.DataFrame): 股票信息数据
+- 返回: bool
+
+```python
+info_data = pd.DataFrame({
+    'symbol': ['000001.SZ'],
+    'name': ['平安银行'],
+    'market': ['SZ'],
+    'exchange': ['深交所'],
+    'list_date': ['1991-04-03'],
+    'status': ['L']
+})
+api_manager.store_stock_info(info_data)
+```
+
+### 多市场管理器
+
+#### MultiMarketManager
+
+提供多市场数据统一管理功能。
+
+```python
+from simtradedata.multi_market import MultiMarketManager
+
+multi_market = MultiMarketManager(db_manager, cache_manager, config)
+```
+
+**get_supported_markets()**
+- 获取支持的市场列表
+- 返回: list
+
+```python
+markets = multi_market.get_supported_markets()
+# ['SZ', 'SS', 'HK', 'US']
+```
+
+**get_unified_data(symbols, start_date, end_date)**
+- 获取多市场统一数据
+- 参数:
+  - `symbols` (list): 股票代码列表（可包含不同市场）
+  - `start_date` (str): 开始日期
+  - `end_date` (str): 结束日期
+- 返回: pandas.DataFrame
+
+```python
+data = multi_market.get_unified_data(['000001.SZ', '00700.HK'], '2024-01-01', '2024-01-31')
+```
+
+### 扩展数据管理器
+
+#### ExtendedDataManager
+
+提供ETF、板块、技术指标等扩展数据管理。
+
+```python
+from simtradedata.extended_data import ExtendedDataManager
+
+extended_data = ExtendedDataManager(db_manager, cache_manager, config)
+```
+
+**get_etf_info(symbol)**
+- 获取ETF信息
+- 参数:
+  - `symbol` (str): ETF代码
+- 返回: pandas.DataFrame
+
+```python
+etf_info = extended_data.get_etf_info('510050.SS')
+```
+
+**get_sector_constituents(sector_code)**
+- 获取板块成分股
+- 参数:
+  - `sector_code` (str): 板块代码
+- 返回: pandas.DataFrame
+
+```python
+constituents = extended_data.get_sector_constituents('BK001')
+```
+
+**get_technical_indicators(symbol, start_date, end_date)**
+- 获取技术指标
+- 参数:
+  - `symbol` (str): 股票代码
+  - `start_date` (str): 开始日期
+  - `end_date` (str): 结束日期
+- 返回: pandas.DataFrame
+
+```python
+indicators = extended_data.get_technical_indicators('000001.SZ', '2024-01-01', '2024-01-31')
+```
+
+## 🔌 PTrade兼容接口
+
+### PTradeAPIAdapter
+
+提供与PTrade完全兼容的接口。
+
+```python
+from simtradedata.interfaces import PTradeAPIAdapter
+
+adapter = PTradeAPIAdapter(api_manager, config)
+```
+
+**get_stock_list(market)**
+- 获取股票列表（PTrade兼容）
+- 参数:
+  - `market` (str): 市场代码
+- 返回: pandas.DataFrame
+
+```python
+stocks = adapter.get_stock_list('SZ')
+```
+
+**get_price(symbol, start_date, end_date)**
+- 获取价格数据（PTrade兼容）
+- 参数:
+  - `symbol` (str): 股票代码
+  - `start_date` (str): 开始日期
+  - `end_date` (str): 结束日期
+- 返回: pandas.DataFrame
+
+```python
+prices = adapter.get_price('000001.SZ', '2024-01-01', '2024-01-31')
+```
+
+**get_stock_info(symbol)**
+- 获取股票信息（PTrade兼容）
+- 参数:
+  - `symbol` (str): 股票代码
+- 返回: pandas.DataFrame
+
+```python
+info = adapter.get_stock_info('000001.SZ')
+```
+
+## 🌐 REST API
+
+### 基础信息
+
+- **Base URL**: `http://localhost:8080/api/v1`
+- **Content-Type**: `application/json`
+- **认证**: 可选的API Key认证
+
+### 股票接口
+
+#### GET /stocks
+获取股票列表
+
+**查询参数:**
+- `market` (string, optional): 市场代码 (SZ, SS, HK, US)
+- `status` (string, optional): 状态 (L, D)
+- `limit` (integer, optional): 返回数量限制，默认100
+- `offset` (integer, optional): 偏移量，默认0
+
+**响应示例:**
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    {
+      "symbol": "000001.SZ",
+      "name": "平安银行",
+      "market": "SZ",
+      "exchange": "深交所",
+      "list_date": "1991-04-03",
+      "status": "L"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "per_page": 100
+}
+```
+
+#### GET /stocks/{symbol}
+获取股票基本信息
+
+**路径参数:**
+- `symbol` (string): 股票代码
+
+**响应示例:**
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "symbol": "000001.SZ",
+    "name": "平安银行",
+    "market": "SZ",
+    "exchange": "深交所",
+    "list_date": "1991-04-03",
+    "status": "L"
+  }
+}
+```
+
+#### GET /stocks/{symbol}/prices
+获取股票价格数据
+
+**路径参数:**
+- `symbol` (string): 股票代码
+
+**查询参数:**
+- `start_date` (string): 开始日期，格式YYYY-MM-DD
+- `end_date` (string): 结束日期，格式YYYY-MM-DD
+- `frequency` (string, optional): 数据频率，默认'daily'
+  - 'daily': 日线数据
+  - '1m', '5m', '15m', '30m', '60m': 分钟数据
+
+**响应示例:**
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    {
+      "symbol": "000001.SZ",
+      "trade_date": "2024-01-20",
+      "open": 10.0,
+      "high": 10.5,
+      "low": 9.8,
+      "close": 10.2,
+      "volume": 1000000,
+      "amount": 10200000
+    }
+  ]
+}
+```
+
+#### GET /stocks/{symbol}/indicators
+获取技术指标数据
+
+**路径参数:**
+- `symbol` (string): 股票代码
+
+**查询参数:**
+- `start_date` (string): 开始日期
+- `end_date` (string): 结束日期
+- `indicators` (string, optional): 指标列表，逗号分隔，如'ma5,ma20,rsi'
+
+**响应示例:**
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    {
+      "symbol": "000001.SZ",
+      "trade_date": "2024-01-20",
+      "ma5": 10.2,
+      "ma20": 10.8,
+      "rsi": 65.5,
+      "macd": 0.15
+    }
+  ]
+}
+```
+
+### 市场接口
+
+#### GET /markets
+获取支持的市场列表
+
+**响应示例:**
+```json
+{
+  "code": 200,
+  "message": "success",
+  "data": [
+    {
+      "market": "SZ",
+      "name": "深圳证券交易所",
+      "timezone": "Asia/Shanghai",
+      "trading_hours": "09:30-11:30,13:00-15:00"
+    },
+    {
+      "market": "SS",
+      "name": "上海证券交易所",
+      "timezone": "Asia/Shanghai",
+      "trading_hours": "09:30-11:30,13:00-15:00"
+    }
+  ]
+}
+```
+
+#### GET /markets/{market}/stocks
+获取指定市场的股票列表
+
+**路径参数:**
+- `market` (string): 市场代码
+
+**查询参数:**
+- `status` (string, optional): 状态过滤
+- `limit` (integer, optional): 返回数量限制
+- `offset` (integer, optional): 偏移量
+
+### 扩展数据接口
+
+#### GET /etfs
+获取ETF列表
+
+**查询参数:**
+- `market` (string, optional): 市场代码
+- `limit` (integer, optional): 返回数量限制
+- `offset` (integer, optional): 偏移量
+
+#### GET /sectors
+获取板块列表
+
+**查询参数:**
+- `type` (string, optional): 板块类型 (industry, concept)
+- `limit` (integer, optional): 返回数量限制
+- `offset` (integer, optional): 偏移量
+
+#### GET /sectors/{sector_code}/constituents
+获取板块成分股
+
+**路径参数:**
+- `sector_code` (string): 板块代码
+
+### 错误响应
+
+所有API在出错时返回统一的错误格式：
+
+```json
+{
+  "code": 400,
+  "message": "Invalid parameter",
+  "error": "start_date is required",
+  "timestamp": "2024-01-20T10:30:00Z"
+}
+```
+
+**错误代码:**
+- `400`: 请求参数错误
+- `401`: 认证失败
+- `403`: 权限不足
+- `404`: 资源不存在
+- `429`: 请求频率限制
+- `500`: 服务器内部错误
+
+
+
+## 📊 性能API
+
+### 查询优化器
+
+```python
+from simtradedata.performance import QueryOptimizer
+
+optimizer = QueryOptimizer(db_manager, config)
+
+# 执行优化查询
+result = optimizer.execute_with_cache(sql, params)
+
+# 获取缓存统计
+stats = optimizer.get_cache_stats()
+
+# 获取索引建议
+suggestions = optimizer.suggest_indexes('daily_data')
+```
+
+### 简化的查询处理
+
+```python
+from simtradedata.performance import QueryOptimizer
+
+optimizer = QueryOptimizer(db_manager, config)
+
+# 直接执行查询（无复杂并发）
+result = optimizer.execute_with_cache(sql, params)
+
+# 获取基本统计
+stats = optimizer.get_cache_stats()
+
+# 批量处理
+task_ids = processor.submit_batch_tasks(tasks)
+results = processor.get_batch_results(task_ids)
+```
+
+## 📈 简化的监控
+
+### 基本状态检查
+
+```python
+from simtradedata.database import DatabaseManager
+from simtradedata.config import Config
+
+# 基本的数据库连接检查
+config = Config()
+db = DatabaseManager(config.get('database.path'))
+
+# 检查数据库是否可用
+try:
+    result = db.fetchone("SELECT 1")
+    print("✅ 数据库连接正常")
+except Exception as e:
+    print(f"❌ 数据库连接失败: {e}")
+
+# 检查表是否存在
+tables = ['stocks', 'market_data', 'trading_calendar']
+for table in tables:
+    if db.table_exists(table):
+        count = db.get_table_count(table)
+        print(f"✅ {table}: {count} 条记录")
+    else:
+        print(f"❌ {table}: 表不存在")
+```
+
+---
+
+*SimTradeData API Reference - 完整的API接口文档*

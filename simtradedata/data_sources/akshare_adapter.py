@@ -249,6 +249,32 @@ class AkShareAdapter(BaseDataSource):
 
         return self._retry_request(_fetch_data)
 
+    def _convert_valuation_data(
+        self, data, symbol: str, trade_date: str
+    ) -> Dict[str, Any]:
+        """转换估值数据格式"""
+
+        def safe_float(value, default=0.0):
+            """安全的浮点数转换"""
+            if pd.isna(value) or value == "" or value is None:
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+
+        return {
+            "symbol": symbol,
+            "date": trade_date,
+            "pe_ratio": safe_float(data.get("市盈率-动态", 0)),
+            "pb_ratio": safe_float(data.get("市净率", 0)),
+            "ps_ratio": safe_float(data.get("市销率", 0)),
+            "market_cap": safe_float(data.get("总市值", 0)) * 100000000,  # 转换为元
+            "circulating_cap": safe_float(data.get("流通市值", 0))
+            * 100000000,  # 转换为元
+            "source": "akshare",
+        }
+
     def _convert_to_akshare_symbol(self, symbol: str) -> str:
         """转换为AkShare股票代码格式"""
         # 移除市场后缀

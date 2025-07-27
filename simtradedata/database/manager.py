@@ -191,18 +191,6 @@ class DatabaseManager:
         result = self.fetchone(sql)
         return result["count"] if result else 0
 
-    def vacuum(self):
-        """清理数据库，回收空间"""
-        with self.get_connection() as conn:
-            conn.execute("VACUUM")
-        logger.info("数据库清理完成")
-
-    def analyze(self):
-        """分析数据库，更新统计信息"""
-        with self.get_connection() as conn:
-            conn.execute("ANALYZE")
-        logger.info("数据库分析完成")
-
     def get_database_size(self) -> int:
         """获取数据库文件大小（字节）"""
         return self.db_path.stat().st_size if self.db_path.exists() else 0

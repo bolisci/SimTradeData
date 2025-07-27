@@ -1,338 +1,393 @@
-# PTrade SQLite数据缓存系统 - 最终设计方案
+# PTrade 缓存系统设计文档
 
 ## 🎯 系统概述
 
-基于64个PTrade API，设计高性能SQLite数据缓存系统：
-- **多市场支持**: A股(SZ/SS)、港股(HK)、美股(US)
-- **多频率支持**: 1d/1m/5m/15m/30m/60m/120m/1w/1y
-- **多数据源融合**: AkShare、BaoStock、QStock智能组合
-- **预处理架构**: 离线预处理 + 毫秒级直查
-- **完全兼容**: PTrade API调用方式完全不变
+PTrade缓存系统是SimTradeData的核心组件，负责高效缓存和管理股票数据，为PTrade API提供快速响应。
 
-## 🏗️ 核心架构
+## 🏗️ 架构设计
+
+### 缓存层次结构
 
 ```
-数据流程: 多源下载 → 离线预处理 → PTrade格式存储 → 毫秒级直查
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ 多源数据下载 │ → │ 离线预处理   │ → │ PTrade格式  │ → │ 毫秒级查询   │
-│ AkShare     │    │ 清洗+融合   │    │ 标准存储    │    │ 直接SQL     │
-│ BaoStock    │    │ 复权+指标   │    │ 多市场支持  │    │ 无需组装    │
-│ QStock      │    │ 质量控制    │    │ 优化索引    │    │ 高并发      │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+┌─────────────────────────────────────────┐
+│              PTrade API                 │
+├─────────────────────────────────────────┤
+│           缓存管理层                     │
+│  ┌─────────────┬─────────────────────┐   │
+│  │  内存缓存    │     磁盘缓存         │   │
+│  │  (Redis)    │   (SQLite/File)     │   │
+│  └─────────────┴─────────────────────┘   │
+├─────────────────────────────────────────┤
+│           数据同步层                     │
+│  ┌─────────────┬─────────────────────┐   │
+│  │  实时同步    │     批量同步         │   │
+│  │ (WebSocket) │   (定时任务)        │   │
+│  └─────────────┴─────────────────────┘   │
+├─────────────────────────────────────────┤
+│           数据源层                       │
+│  ┌─────────────┬─────────────────────┐   │
+│  │  BaoStock   │     AkShare         │   │
+│  │  QStock     │     其他数据源       │   │
+│  └─────────────┴─────────────────────┘   │
+└─────────────────────────────────────────┘
 ```
 
-## 📊 数据库设计
+## 📊 缓存策略
 
-### 核心表结构
+### 1. 分层缓存策略
 
-```sql
--- 1. PTrade历史数据表 (支持多市场多频率)
-CREATE TABLE market_data (
-    symbol TEXT NOT NULL,             -- 股票代码 (000001.SZ/600000.SS/00700.HK/AAPL.US)
-    market TEXT NOT NULL,             -- 市场 (SZ/SS/HK/US)
-    trade_date DATE NOT NULL,         -- 交易日期
-    trade_time TIME,                  -- 交易时间 (分钟线用)
-    frequency TEXT NOT NULL,          -- 频率 (1d/1m/5m/15m/30m/60m/120m/1w/1y)
-    
-    -- PTrade API标准字段
-    open REAL, high REAL, low REAL, close REAL,
-    volume REAL, money REAL, price REAL,
-    
-    -- 日线专用字段 (A股)
-    preclose REAL, high_limit REAL, low_limit REAL,
-    unlimited INTEGER DEFAULT 0,
-    
-    -- 估值指标 (预计算)
-    pe_ratio REAL, pb_ratio REAL, turnover_rate REAL,
-    
-    -- 技术指标 (预计算，仅日线)
-    ma5 REAL, ma10 REAL, ma20 REAL, ma60 REAL,
-    
-    UNIQUE(symbol, trade_date, trade_time, frequency)
-);
+#### L1 缓存 - 内存缓存
+- **存储**: Redis/内存字典
+- **容量**: 1GB
+- **TTL**: 5-60分钟
+- **用途**: 热点数据、实时数据
 
--- 2. 股票基础信息表
-CREATE TABLE ptrade_stock_info (
-    symbol TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    market TEXT NOT NULL,             -- SZ/SS/HK/US
-    industry TEXT,
-    list_date DATE,
-    currency TEXT DEFAULT 'CNY',      -- CNY/HKD/USD
-    timezone TEXT DEFAULT 'Asia/Shanghai',
-    last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+#### L2 缓存 - 磁盘缓存
+- **存储**: SQLite数据库
+- **容量**: 无限制
+- **TTL**: 1-30天
+- **用途**: 历史数据、冷数据
 
--- 3. 交易日历表 (多市场)
-CREATE TABLE ptrade_calendar (
-    trade_date DATE NOT NULL,
-    market TEXT NOT NULL,
-    is_trading INTEGER NOT NULL,
-    open_time TIME,
-    close_time TIME,
-    PRIMARY KEY(trade_date, market)
-);
-
--- 4. 财务数据表
-CREATE TABLE ptrade_fundamentals (
-    symbol TEXT NOT NULL,
-    report_date DATE NOT NULL,
-    report_type TEXT NOT NULL,        -- Q1/Q2/Q3/Q4
-    revenue REAL, net_profit REAL, eps REAL,
-    roe REAL, roa REAL,
-    UNIQUE(symbol, report_date, report_type)
-);
-
--- 5. 市场数据源配置表
-CREATE TABLE market_data_source_config (
-    market TEXT NOT NULL,
-    frequency TEXT NOT NULL,
-    data_type TEXT NOT NULL,
-    priority_1 TEXT, priority_2 TEXT, priority_3 TEXT,
-    is_supported INTEGER DEFAULT 1,
-    PRIMARY KEY(market, frequency, data_type)
-);
-```
-
-### 索引优化
-
-```sql
--- 多市场多频率索引
-CREATE INDEX idx_history_symbol_freq_date ON market_data(symbol, frequency, trade_date);
-CREATE INDEX idx_history_market_freq_date ON market_data(market, frequency, trade_date);
-CREATE INDEX idx_history_symbol_freq_datetime ON market_data(symbol, frequency, trade_date, trade_time);
-```
-
-## 🏭 数据预处理引擎
-
-### 核心组件
+### 2. 缓存键设计
 
 ```python
-class DataPreprocessor:
-    """数据预处理引擎"""
-    
-    def process_daily_data(self, target_date=None, frequencies=['1d']):
-        """处理每日增量数据"""
-        symbols = self._get_active_symbols()
-        
-        for frequency in frequencies:
-            for symbol in symbols:
-                # 1. 解析市场
-                market = self._parse_market_from_symbol(symbol)
-                
-                # 2. 收集原始数据
-                raw_data = self._collect_raw_data(symbol, target_date, frequency, market)
-                
-                # 3. 转换PTrade格式
-                ptrade_data = self._convert_to_ptrade(raw_data, symbol, frequency, market)
-                
-                # 4. 预计算指标 (仅日线)
-                if frequency == '1d':
-                    ptrade_data = self._calculate_indicators(ptrade_data)
-                
-                # 5. 存储
-                self._store_ptrade_data(ptrade_data)
-    
-    def _collect_raw_data(self, symbol, date, frequency, market):
-        """根据市场选择数据源"""
-        priorities = self._get_market_source_priorities(market, frequency)
-        
-        for source_name in priorities:
-            try:
-                if frequency == '1d':
-                    return self.sources[source_name].get_daily_data(symbol, date)
-                else:
-                    return self.sources[source_name].get_minute_data(symbol, date, frequency)
-            except Exception as e:
-                continue
-        
-        raise Exception(f"无法获取数据: {symbol} {date} {frequency}")
-    
-    def _parse_market_from_symbol(self, symbol):
-        """解析市场"""
-        if symbol.endswith('.SZ'): return 'SZ'
-        elif symbol.endswith('.SS'): return 'SS'
-        elif symbol.endswith('.HK'): return 'HK'
-        elif symbol.endswith('.US'): return 'US'
-        else:
-            # 根据代码前缀推断
-            if symbol.startswith('00') or symbol.startswith('30'): return 'SZ'
-            elif symbol.startswith('60') or symbol.startswith('68'): return 'SS'
-            return 'SZ'
+# 缓存键格式
+cache_key = f"{data_type}:{symbol}:{frequency}:{date}:{params_hash}"
+
+# 示例
+"ohlcv:000001.SZ:1d:2024-01-24:abc123"
+"indicators:000001.SZ:1h:2024-01-24:def456"
+"fundamentals:000001.SZ:Q4:2023-12-31:ghi789"
 ```
 
-## ⚡ 高性能API路由器
+### 3. 缓存更新策略
+
+#### 主动更新
+- 定时任务批量更新
+- 数据源变化触发更新
+- 用户请求触发更新
+
+#### 被动更新
+- 缓存过期自动更新
+- LRU淘汰机制
+- 容量限制触发清理
+
+## 🔄 数据同步机制
+
+### 1. 实时同步
 
 ```python
-class APIRouter:
-    """PTrade API路由器"""
+class RealtimeSync:
+    def __init__(self):
+        self.websocket_clients = {}
+        self.update_queue = Queue()
     
-    def route_call(self, api_name, **kwargs):
-        """路由API调用 - 直接查询预处理数据"""
-        builder = self.query_builders[api_name]
-        sql, params = builder.build_query(**kwargs)
-        return pd.read_sql(sql, self.db.connection, params=params)
-
-class HistoryQueryBuilder:
-    """历史数据查询构建器"""
+    async def handle_market_data(self, data):
+        # 更新缓存
+        await self.cache_manager.update(data)
+        
+        # 推送给订阅客户端
+        await self.broadcast_update(data)
     
-    def build_query(self, security_list, start_date=None, end_date=None, 
-                   frequency='1d', fields=None, **kwargs):
-        """构建查询SQL"""
-        symbols = self._normalize_symbols(security_list)
-        field_list = self._normalize_fields(fields, frequency)
-        
-        base_fields = ['symbol', 'trade_date']
-        if frequency not in ['1d', '1w', '1y']:
-            base_fields.append('trade_time')
-        
-        sql = f"""
-        SELECT {', '.join(base_fields + field_list)}
-        FROM market_data 
-        WHERE symbol IN ({','.join(['?'] * len(symbols))})
-        AND frequency = ?
-        """
-        
-        params = symbols + [frequency]
-        
-        if start_date:
-            sql += " AND trade_date >= ?"
-            params.append(start_date)
-        if end_date:
-            sql += " AND trade_date <= ?"
-            params.append(end_date)
-        
-        sql += " ORDER BY symbol, trade_date"
-        if frequency not in ['1d', '1w', '1y']:
-            sql += ", trade_time"
-        
-        return sql, params
+    async def subscribe_symbol(self, symbol, client):
+        # 订阅股票数据更新
+        self.websocket_clients[client] = symbol
 ```
 
-## 🔄 数据同步策略
-
-### 增量同步
+### 2. 批量同步
 
 ```python
-class IncrementalSync:
-    """增量同步管理器"""
+class BatchSync:
+    def __init__(self):
+        self.sync_scheduler = Scheduler()
     
-    def sync_incremental(self, data_type='daily'):
-        """从上次更新点同步到今天"""
-        symbols = self._get_active_symbols()
-        today = datetime.now().date()
-        
+    def schedule_daily_sync(self):
+        # 每日收盘后同步
+        self.sync_scheduler.add_job(
+            self.sync_daily_data,
+            trigger='cron',
+            hour=16, minute=0
+        )
+    
+    async def sync_daily_data(self):
+        # 批量同步当日数据
+        symbols = self.get_active_symbols()
         for symbol in symbols:
-            # 获取最后数据日期
-            last_date = self._get_last_data_date(symbol)
-            
-            if last_date is None:
-                start_date = self._get_list_date(symbol) or '2020-01-01'
-            else:
-                start_date = self._get_next_trade_date(last_date)
-            
-            if start_date <= today:
-                self._sync_date_range(symbol, start_date, today)
+            await self.sync_symbol_data(symbol)
+```
 
-class GapDetector:
-    """数据缺口检测和修复"""
+## 🚀 性能优化
+
+### 1. 查询优化
+
+#### 索引策略
+```sql
+-- 主要索引
+CREATE INDEX idx_symbol_date ON market_data(symbol, date);
+CREATE INDEX idx_symbol_frequency ON market_data(symbol, frequency);
+CREATE INDEX idx_date_range ON market_data(date, symbol);
+
+-- 复合索引
+CREATE INDEX idx_symbol_date_freq ON market_data(symbol, date, frequency);
+```
+
+#### 查询优化
+```python
+# 批量查询优化
+def get_multiple_symbols_data(symbols, date_range):
+    # 使用IN查询而不是循环查询
+    sql = """
+    SELECT * FROM market_data 
+    WHERE symbol IN ({}) 
+    AND date BETWEEN ? AND ?
+    """.format(','.join(['?'] * len(symbols)))
     
-    def detect_and_fix_gaps(self, symbol=None, max_gap_days=30):
-        """检测并修复数据缺口"""
-        gaps = self._detect_gaps(symbol)
-        
-        for gap in gaps:
-            if gap['days'] <= max_gap_days:
-                self._fill_gap(symbol, gap['start'], gap['end'])
+    return self.db.execute(sql, symbols + date_range)
 ```
 
-## 🌍 多市场支持
+### 2. 内存管理
 
-### 市场配置
+#### 对象池
+```python
+class DataObjectPool:
+    def __init__(self, max_size=1000):
+        self.pool = []
+        self.max_size = max_size
+    
+    def get_object(self):
+        if self.pool:
+            return self.pool.pop()
+        return MarketDataObject()
+    
+    def return_object(self, obj):
+        if len(self.pool) < self.max_size:
+            obj.reset()
+            self.pool.append(obj)
+```
+
+#### 内存监控
+```python
+class MemoryMonitor:
+    def __init__(self):
+        self.memory_threshold = 0.8  # 80%
+    
+    def check_memory_usage(self):
+        usage = psutil.virtual_memory().percent / 100
+        if usage > self.memory_threshold:
+            self.trigger_cache_cleanup()
+```
+
+## 📈 缓存指标监控
+
+### 1. 关键指标
 
 ```python
-MARKET_CONFIG = {
-    'SZ': {
-        'name': '深圳证券交易所',
-        'data_sources': ['baostock', 'akshare', 'qstock'],
-        'frequencies': ['1d', '1m', '5m', '15m', '30m', '60m'],
-        'features': ['涨跌停', 'T+1', '集合竞价']
-    },
-    'SS': {
-        'name': '上海证券交易所',
-        'data_sources': ['baostock', 'akshare', 'qstock'],
-        'frequencies': ['1d', '1m', '5m', '15m', '30m', '60m'],
-        'features': ['涨跌停', 'T+1', '集合竞价']
-    },
-    'HK': {
-        'name': '香港证券交易所',
-        'data_sources': ['akshare'],
-        'frequencies': ['1d'],  # 仅日线
-        'features': ['无涨跌停', 'T+0']
-    },
-    'US': {
-        'name': '美国证券交易所',
-        'data_sources': ['akshare'],
-        'frequencies': ['1d'],  # 仅日线
-        'features': ['无涨跌停', 'T+0', '盘前盘后']
-    }
-}
+class CacheMetrics:
+    def __init__(self):
+        self.hit_rate = 0.0
+        self.miss_rate = 0.0
+        self.eviction_rate = 0.0
+        self.memory_usage = 0.0
+        self.response_time = 0.0
+    
+    def calculate_hit_rate(self):
+        total_requests = self.hits + self.misses
+        self.hit_rate = self.hits / total_requests if total_requests > 0 else 0
 ```
 
-## 🎮 使用示例
+### 2. 监控面板
 
 ```python
-# A股查询 (完整功能)
-sz_data = ptrade.get_history('000001.SZ', start_date='2024-01-01', frequency='1d')
-ss_minute = ptrade.get_history('600000.SS', start_date='2024-01-20', frequency='5m')
-
-# 港股查询 (仅日线)
-hk_data = ptrade.get_history('00700.HK', start_date='2024-01-01', frequency='1d')
-
-# 美股查询 (仅日线)
-us_data = ptrade.get_history('AAPL.US', start_date='2024-01-01', frequency='1d')
-
-# 多市场混合查询
-multi_market = ptrade.get_history(['000001.SZ', '00700.HK', 'AAPL.US'], start_date='2024-01-01')
-
-# 数据同步
-sync = IncrementalSync()
-result = sync.sync_incremental('daily')
-
-# 缺口检测修复
-detector = GapDetector()
-gaps = detector.detect_and_fix_gaps('000001.SZ')
+class CacheMonitoringDashboard:
+    def get_cache_status(self):
+        return {
+            "hit_rate": self.metrics.hit_rate,
+            "memory_usage": self.get_memory_usage(),
+            "cache_size": self.get_cache_size(),
+            "eviction_count": self.get_eviction_count(),
+            "top_accessed_keys": self.get_top_keys()
+        }
 ```
 
-## 📊 性能指标
+## 🔧 配置管理
 
-| 操作类型 | 响应时间 | 并发支持 | 存储估算 |
-|---------|---------|----------|----------|
-| 单股票1年日线 | 10-30ms | 100+ | ~50KB |
-| 单股票1年5分钟线 | 50-100ms | 50+ | ~2MB |
-| 50股票1年日线 | 100-300ms | 50+ | ~2.5MB |
-| 多市场混合查询 | 20-80ms | 80+ | 变化 |
-
-## 🚀 部署配置
+### 1. 缓存配置
 
 ```yaml
-# config.yaml
-database:
-  path: "./data/simtradedata.db"
-
-markets:
-  enabled: ["SZ", "SS", "HK", "US"]
+cache:
+  # 内存缓存配置
+  memory:
+    max_size: 1000000  # 最大条目数
+    ttl: 300          # 默认TTL(秒)
+    eviction_policy: "lru"
   
-data_sources:
-  akshare: {enabled: true, timeout: 10}
-  baostock: {enabled: true, timeout: 15}
-  qstock: {enabled: true, timeout: 10}
-
-sync:
-  daily_schedule: "02:00"
-  frequencies: ["1d", "5m", "15m", "30m", "60m"]
-  auto_gap_fix: true
-  max_gap_days: 30
+  # 磁盘缓存配置
+  disk:
+    path: "data/cache.db"
+    max_size: "10GB"
+    compression: true
+  
+  # 预热配置
+  warmup:
+    enabled: true
+    symbols: ["000001.SZ", "000002.SZ"]
+    data_types: ["ohlcv", "indicators"]
 ```
 
-这个设计提供了完整的多市场、多频率、高性能SQLite数据缓存解决方案。
+### 2. 性能调优
+
+```yaml
+performance:
+  # 并发配置
+  max_concurrent_requests: 100
+  request_timeout: 30
+  
+  # 批处理配置
+  batch_size: 1000
+  batch_timeout: 5
+  
+  # 连接池配置
+  connection_pool:
+    min_connections: 5
+    max_connections: 20
+    idle_timeout: 300
+```
+
+## 🛠️ 实现细节
+
+### 1. 缓存管理器
+
+```python
+class PTradeCacheManager:
+    def __init__(self, config):
+        self.l1_cache = MemoryCache(config.memory)
+        self.l2_cache = DiskCache(config.disk)
+        self.metrics = CacheMetrics()
+    
+    async def get(self, key):
+        # L1缓存查找
+        data = await self.l1_cache.get(key)
+        if data:
+            self.metrics.record_hit("l1")
+            return data
+        
+        # L2缓存查找
+        data = await self.l2_cache.get(key)
+        if data:
+            self.metrics.record_hit("l2")
+            # 提升到L1缓存
+            await self.l1_cache.set(key, data)
+            return data
+        
+        self.metrics.record_miss()
+        return None
+    
+    async def set(self, key, data, ttl=None):
+        # 同时写入L1和L2缓存
+        await self.l1_cache.set(key, data, ttl)
+        await self.l2_cache.set(key, data, ttl)
+```
+
+### 2. 数据预热
+
+```python
+class CacheWarmer:
+    def __init__(self, cache_manager, data_source):
+        self.cache = cache_manager
+        self.data_source = data_source
+    
+    async def warmup_popular_data(self):
+        # 预热热门股票数据
+        popular_symbols = self.get_popular_symbols()
+        for symbol in popular_symbols:
+            await self.warmup_symbol_data(symbol)
+    
+    async def warmup_symbol_data(self, symbol):
+        # 预热单个股票的常用数据
+        today = datetime.now().date()
+        
+        # 预热最近30天的日线数据
+        data = await self.data_source.get_daily_data(
+            symbol, today - timedelta(days=30), today
+        )
+        
+        cache_key = f"ohlcv:{symbol}:1d:recent"
+        await self.cache.set(cache_key, data)
+```
+
+## 📋 API接口
+
+### 1. 缓存操作API
+
+```python
+# 获取缓存数据
+GET /api/cache/{key}
+
+# 设置缓存数据
+POST /api/cache/{key}
+{
+    "data": {...},
+    "ttl": 300
+}
+
+# 删除缓存数据
+DELETE /api/cache/{key}
+
+# 清空缓存
+DELETE /api/cache/clear
+```
+
+### 2. 监控API
+
+```python
+# 获取缓存状态
+GET /api/cache/status
+
+# 获取缓存指标
+GET /api/cache/metrics
+
+# 获取热门键
+GET /api/cache/top-keys
+```
+
+## 🔍 故障排除
+
+### 1. 常见问题
+
+#### 缓存命中率低
+- 检查TTL设置是否合理
+- 检查缓存键是否正确
+- 检查内存限制是否足够
+
+#### 内存使用过高
+- 调整缓存大小限制
+- 优化数据结构
+- 增加淘汰频率
+
+#### 响应时间慢
+- 检查磁盘I/O性能
+- 优化查询语句
+- 增加索引
+
+### 2. 监控告警
+
+```python
+class CacheAlertManager:
+    def check_alerts(self):
+        metrics = self.cache.get_metrics()
+        
+        # 命中率告警
+        if metrics.hit_rate < 0.8:
+            self.send_alert("缓存命中率过低", metrics.hit_rate)
+        
+        # 内存使用告警
+        if metrics.memory_usage > 0.9:
+            self.send_alert("缓存内存使用过高", metrics.memory_usage)
+```
+
+## 📚 相关文档
+
+- [API参考文档](API_REFERENCE.md)
+- [性能优化指南](Performance_Guide.md)
+- [监控运维指南](Operations_Guide.md)
+- [故障排除指南](Troubleshooting_Guide.md)

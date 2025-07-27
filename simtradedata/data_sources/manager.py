@@ -130,14 +130,15 @@ class DataSourceManager:
 
         # 默认优先级策略
         if data_type == "ohlcv":
-            if frequency == "1d":
-                return ["baostock", "akshare", "qstock"]
-            else:
-                return ["akshare", "qstock"]
+            return ["baostock", "akshare", "qstock"]
         elif data_type == "fundamentals":
             return ["baostock", "akshare"]
         elif data_type == "valuation":
-            return ["akshare", "qstock"]
+            return ["baostock", "akshare", "qstock"]  # BaoStock有估值数据且稳定
+        elif data_type == "adjustment":
+            return ["baostock"]  # 只有BaoStock支持除权除息数据
+        elif data_type == "calendar":
+            return ["baostock", "akshare"]
         else:
             return list(self.get_available_sources())
 
@@ -145,7 +146,6 @@ class DataSourceManager:
         self, method_name: str, priorities: List[str], *args, **kwargs
     ) -> Any:
         """
-        禁止fallback机制，只使用第一个指定的数据源
 
         Args:
             method_name: 方法名称
@@ -155,7 +155,6 @@ class DataSourceManager:
         Returns:
             Any: 数据结果
         """
-        # 禁止fallback，只使用第一个指定的数据源
         if not priorities:
             raise DataSourceError("没有指定数据源")
 
@@ -164,10 +163,7 @@ class DataSourceManager:
             raise DataSourceError(f"数据源 {source_name} 不存在")
 
         source = self.sources[source_name]
-        self.source_status[source_name]
-
-        # 简化：直接调用方法，不做过度的状态管理
-        source = self.sources[source_name]
+        # self.source_status[source_name]
 
         # 确保连接
         if not source.is_connected():

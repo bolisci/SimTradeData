@@ -44,7 +44,7 @@ class SimTradeDataCLI:
         self.db_manager = DatabaseManager(
             self.config.get("database.path", "data/simtradedata.db")
         )
-        self.data_source_manager = DataSourceManager(self.config)
+        self.data_source_manager = DataSourceManager(self.config._config)
         self.processing_engine = DataProcessingEngine(
             self.db_manager, self.data_source_manager, self.config
         )
@@ -361,22 +361,22 @@ def main():
         epilog="""
 示例用法:
   # 全量同步今天的数据
-  python -m simtradedata.cli full-sync
-  
+  python -m simtradedata full-sync
+
   # 全量同步指定日期
-  python -m simtradedata.cli full-sync --target-date 2024-01-20
-  
+  python -m simtradedata full-sync --target-date 2024-01-20
+
   # 增量同步指定日期范围
-  python -m simtradedata.cli incremental --start-date 2024-01-01 --end-date 2024-01-10
-  
+  python -m simtradedata incremental --start-date 2024-01-01 --end-date 2024-01-10
+
   # 缺口检测和修复
-  python -m simtradedata.cli gap-fix --start-date 2024-01-01
-  
+  python -m simtradedata gap-fix --start-date 2024-01-01
+
   # 断点续传
-  python -m simtradedata.cli resume --symbol 000001.SZ
-  
+  python -m simtradedata resume --symbol 000001.SZ
+
   # 查看同步状态
-  python -m simtradedata.cli status
+  python -m simtradedata status
         """,
     )
 

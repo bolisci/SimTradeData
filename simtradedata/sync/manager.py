@@ -349,6 +349,7 @@ class SyncManager:
         end_date: date = None,
         symbols: List[str] = None,
         frequencies: List[str] = None,
+        tables: List[str] = None,
     ) -> Dict[str, Any]:
         """
         运行缺口检测和修复
@@ -358,6 +359,7 @@ class SyncManager:
             end_date: 结束日期，默认为今天
             symbols: 股票代码列表，默认为所有活跃股票
             frequencies: 频率列表，默认为配置中的频率
+            tables: 要检测的表格列表，默认为所有支持的表格
 
         Returns:
             Dict[str, Any]: 缺口检测和修复结果
@@ -371,10 +373,16 @@ class SyncManager:
         try:
             logger.info(f"开始缺口检测和修复: {start_date} 到 {end_date}")
 
-            # 检测缺口
-            gap_result = self.gap_detector.detect_all_gaps(
-                start_date, end_date, symbols, frequencies
-            )
+            # 检测所有表格的缺口
+            if tables:
+                gap_result = self.gap_detector.detect_all_tables_gaps(
+                    start_date, end_date, symbols, tables
+                )
+            else:
+                # 向后兼容：使用原来的方法
+                gap_result = self.gap_detector.detect_all_gaps(
+                    start_date, end_date, symbols, frequencies
+                )
 
             result = {"detection_result": gap_result, "fix_result": None}
 
@@ -441,14 +449,29 @@ class SyncManager:
 
         # 收集需要修复的缺口
         gaps_to_fix = []
-        for freq_data in gap_result["gaps_by_frequency"].values():
-            for gap in freq_data["gaps"]:
-                # 只修复日期缺失类型的缺口，且缺口天数不超过限制
-                if (
-                    gap["gap_type"] == "date_missing"
-                    and gap["gap_days"] <= self.max_gap_fix_days
-                ):
-                    gaps_to_fix.append(gap)
+
+        # 检查数据结构类型
+        if "gaps_by_frequency" in gap_result:
+            # 旧格式：按频率分组
+            for freq_data in gap_result["gaps_by_frequency"].values():
+                for gap in freq_data["gaps"]:
+                    # 只修复日期缺失类型的缺口，且缺口天数不超过限制
+                    if (
+                        gap["gap_type"] == "date_missing"
+                        and gap["gap_days"] <= self.max_gap_fix_days
+                    ):
+                        gaps_to_fix.append(gap)
+        elif "gaps_by_table" in gap_result:
+            # 新格式：按表格分组
+            for table_data in gap_result["gaps_by_table"].values():
+                if "gaps" in table_data:
+                    for gap in table_data["gaps"]:
+                        # 只修复日期缺失类型的缺口，且缺口天数不超过限制
+                        if (
+                            gap["gap_type"] == "date_missing"
+                            and gap["gap_days"] <= self.max_gap_fix_days
+                        ):
+                            gaps_to_fix.append(gap)
 
         logger.info(f"需要修复的缺口数量: {len(gaps_to_fix)}")
 
@@ -503,20 +526,48 @@ class SyncManager:
         start_date = datetime.strptime(gap["start_date"], "%Y-%m-%d").date()
         end_date = datetime.strptime(gap["end_date"], "%Y-%m-%d").date()
         frequency = gap["frequency"]
+        table_name = gap.get("table_name", "market_data")  # 默认为市场数据
 
-        logger.debug(f"修复缺口: {symbol} {start_date} 到 {end_date} {frequency}")
-
-        # 使用增量同步器修复缺口
-        sync_result = self.incremental_sync.sync_symbol_range(
-            symbol, start_date, end_date, frequency
+        logger.debug(
+            f"修复缺口: {table_name}.{symbol} {start_date} 到 {end_date} {frequency}"
         )
 
-        return sync_result["success_count"] > 0
+        try:
+            if table_name == "market_data":
+                # 修复市场数据缺口
+                sync_result = self.incremental_sync.sync_symbol_range(
+                    symbol, start_date, end_date, frequency
+                )
+                return sync_result["success_count"] > 0
+
+            elif table_name == "valuations":
+                # 修复估值数据缺口
+                return self._fix_valuations_gap(symbol, start_date, end_date)
+
+            elif table_name == "technical_indicators":
+                # 修复技术指标缺口
+                return self._fix_technical_indicators_gap(symbol, start_date, end_date)
+
+            elif table_name == "corporate_actions":
+                # 修复除权除息数据缺口
+                return self._fix_corporate_actions_gap(symbol, start_date, end_date)
+
+            elif table_name == "financials":
+                # 修复财务数据缺口
+                return self._fix_financials_gap(symbol, start_date, end_date)
+
+            else:
+                logger.warning(f"不支持修复表格 {table_name} 的缺口")
+                return False
+
+        except Exception as e:
+            logger.error(f"修复缺口失败 {table_name}.{symbol}: {e}")
+            return False
 
     def _sync_extended_data(
         self, symbols: List[str], target_date: date, progress_bar=None
     ) -> Dict[str, Any]:
-        """同步扩展数据（财务、估值、技术指标等）"""
+        """同步扩展数据（财务、估值、技术指标等）- 优化版本"""
         logger.info(f"开始同步扩展数据: {len(symbols)}只股票")
 
         result = {
@@ -528,31 +579,97 @@ class SyncManager:
         }
 
         for symbol in symbols:
-            try:
-                # 1. 同步财务数据
-                financials_count = self._sync_financials_data(symbol, target_date)
-                result["financials_count"] += financials_count
+            # 1. 同步技术指标（最快的，基于本地数据）
+            indicators_count = self._sync_technical_indicators(symbol, target_date)
+            result["indicators_count"] += indicators_count
 
-                # 2. 同步估值数据
-                valuations_count = self._sync_valuations_data(symbol, target_date)
-                result["valuations_count"] += valuations_count
+            # 2. 同步除权除息数据（BaoStock，相对快速）
+            corporate_actions_count = self._sync_corporate_actions(symbol, target_date)
+            result["corporate_actions_count"] = (
+                result.get("corporate_actions_count", 0) + corporate_actions_count
+            )
 
-                # 3. 同步技术指标
-                indicators_count = self._sync_technical_indicators(symbol, target_date)
-                result["indicators_count"] += indicators_count
+            # 3. 有限的估值数据同步
+            valuations_count = self._sync_valuations_data(symbol, target_date)
+            result["valuations_count"] += valuations_count
 
-                result["processed_symbols"] += 1
-
-            except Exception as e:
-                logger.error(f"同步扩展数据失败 {symbol}: {e}")
-                result["failed_symbols"] += 1
+            result["processed_symbols"] += 1
 
             if progress_bar:
                 progress_bar.update(1)
 
         logger.info(
-            f"扩展数据同步完成: 财务={result['financials_count']}, 估值={result['valuations_count']}, 指标={result['indicators_count']}"
+            f"扩展数据同步完成: 处理={result['processed_symbols']}, 失败={result['failed_symbols']}, 指标={result['indicators_count']}"
         )
+        return result
+
+    def sync_extended_data_full(
+        self, symbols: List[str], target_date: date, progress_bar=None
+    ) -> Dict[str, Any]:
+        """完整的扩展数据同步（包括财务、估值等）- 仅在需要时使用"""
+        logger.info(f"开始完整扩展数据同步: {len(symbols)}只股票")
+
+        result = {
+            "financials_count": 0,
+            "valuations_count": 0,
+            "indicators_count": 0,
+            "corporate_actions_count": 0,
+            "processed_symbols": 0,
+            "failed_symbols": 0,
+        }
+
+        for symbol in symbols:
+            logger.info(f"同步扩展数据: {symbol}")
+
+            # 1. 同步财务数据
+            financials_count = self._sync_financials_data(symbol, target_date)
+            result["financials_count"] += financials_count
+
+            # 2. 同步估值数据
+            valuations_count = self._sync_valuations_data(symbol, target_date)
+            result["valuations_count"] += valuations_count
+
+            # 3. 同步技术指标
+            indicators_count = self._sync_technical_indicators(symbol, target_date)
+            result["indicators_count"] += indicators_count
+
+            # 4. 同步除权除息数据
+            corporate_actions_count = self._sync_corporate_actions(symbol, target_date)
+            result["corporate_actions_count"] += corporate_actions_count
+            result["processed_symbols"] += 1
+
+            if progress_bar:
+                progress_bar.update(1)
+
+        logger.info(
+            f"完整扩展数据同步完成: 财务={result['financials_count']}, 估值={result['valuations_count']}, 指标={result['indicators_count']}, 除权除息={result['corporate_actions_count']}"
+        )
+        return result
+
+    def sync_slow_data_with_timeout(
+        self, symbols: List[str], target_date: date, timeout_per_symbol: int = 10
+    ) -> Dict[str, Any]:
+        """同步慢速数据（估值、财务）- 带超时控制"""
+
+        result = {
+            "financials_count": 0,
+            "valuations_count": 0,
+            "processed_symbols": 0,
+            "failed_symbols": 0,
+            "timeout_symbols": 0,
+        }
+
+        for symbol in symbols:
+            # 尝试同步估值数据
+            valuations_count = self._sync_valuations_data(symbol, target_date)
+            result["valuations_count"] += valuations_count
+
+            # 尝试同步财务数据
+            financials_count = self._sync_financials_data(symbol, target_date)
+            result["financials_count"] += financials_count
+
+            result["processed_symbols"] += 1
+
         return result
 
     def _sync_financials_data(self, symbol: str, target_date: date) -> int:
@@ -841,6 +958,63 @@ class SyncManager:
 
         return indicators
 
+    def _sync_corporate_actions(self, symbol: str, target_date: date) -> int:
+        """同步除权除息数据"""
+        try:
+            # 获取最近一年的除权除息数据
+            start_date = target_date - timedelta(days=365)
+
+            # 检查是否已存在最近的数据
+            existing_sql = """
+            SELECT COUNT(*) as count FROM corporate_actions
+            WHERE symbol = ? AND ex_date >= ?
+            """
+            existing = self.db_manager.fetchone(existing_sql, (symbol, str(start_date)))
+
+            if existing and existing["count"] > 10:  # 如果已有较多数据，跳过
+                return 0
+
+            # 获取除权除息数据
+            adjustment_data = self.data_source_manager.get_adjustment_data(
+                symbol, start_date, target_date
+            )
+
+            count = 0
+            if adjustment_data and "error" not in adjustment_data:
+                for action in adjustment_data:
+                    # 存储除权除息数据
+                    self._store_corporate_action(symbol, action)
+                    count += 1
+
+            return count
+
+        except Exception as e:
+            logger.error(f"同步除权除息数据失败 {symbol}: {e}")
+            return 0
+
+    def _store_corporate_action(self, symbol: str, action: Dict[str, Any]):
+        """存储除权除息数据"""
+        sql = """
+        INSERT OR REPLACE INTO corporate_actions (
+            symbol, ex_date, cash_dividend, stock_dividend,
+            rights_ratio, rights_price, split_ratio, source, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        params = (
+            symbol,
+            action.get("ex_date"),
+            action.get("dividend", 0),
+            action.get("bonus_ratio", 0),
+            action.get("rights_ratio", 0),
+            action.get("rights_price", 0),
+            action.get("split_ratio", 1),
+            action.get("source", "unknown"),
+            datetime.now().isoformat(),
+        )
+
+        self.db_manager.execute(sql, params)
+
     def get_sync_status(self) -> Dict[str, Any]:
         """获取同步状态"""
         try:
@@ -999,6 +1173,95 @@ class SyncManager:
             logger.error(f"生成同步报告失败: {e}")
             return f"报告生成失败: {e}"
 
+    def _fix_valuations_gap(
+        self, symbol: str, start_date: date, end_date: date
+    ) -> bool:
+        """修复估值数据缺口"""
+        try:
+            success_count = 0
+            current_date = start_date
+
+            while current_date <= end_date:
+                # 检查是否为交易日
+                trading_days = self.gap_detector._get_trading_days(
+                    current_date, current_date
+                )
+                if trading_days:
+                    count = self._sync_valuations_data(symbol, current_date)
+                    if count > 0:
+                        success_count += 1
+
+                current_date += timedelta(days=1)
+
+            return success_count > 0
+
+        except Exception as e:
+            logger.error(f"修复估值数据缺口失败 {symbol}: {e}")
+            return False
+
+    def _fix_technical_indicators_gap(
+        self, symbol: str, start_date: date, end_date: date
+    ) -> bool:
+        """修复技术指标缺口"""
+        try:
+            success_count = 0
+            current_date = start_date
+
+            while current_date <= end_date:
+                # 检查是否为交易日
+                trading_days = self.gap_detector._get_trading_days(
+                    current_date, current_date
+                )
+                if trading_days:
+                    count = self._sync_technical_indicators(symbol, current_date)
+                    if count > 0:
+                        success_count += 1
+
+                current_date += timedelta(days=1)
+
+            return success_count > 0
+
+        except Exception as e:
+            logger.error(f"修复技术指标缺口失败 {symbol}: {e}")
+            return False
+
+    def _fix_corporate_actions_gap(
+        self, symbol: str, start_date: date, end_date: date
+    ) -> bool:
+        """修复除权除息数据缺口"""
+        try:
+            # 除权除息数据通常是一次性获取一段时间的数据
+            count = self._sync_corporate_actions(symbol, end_date)
+            return count > 0
+
+        except Exception as e:
+            logger.error(f"修复除权除息数据缺口失败 {symbol}: {e}")
+            return False
+
+    def _fix_financials_gap(
+        self, symbol: str, start_date: date, end_date: date
+    ) -> bool:
+        """修复财务数据缺口"""
+        try:
+            # 财务数据按季度报告，需要确定报告期
+            success_count = 0
+            current_date = start_date
+
+            while current_date <= end_date:
+                # 检查是否为季度末
+                if current_date.month in [3, 6, 9, 12] and current_date.day >= 25:
+                    count = self._sync_financials_data(symbol, current_date)
+                    if count > 0:
+                        success_count += 1
+
+                current_date += timedelta(days=30)  # 跳到下个月
+
+            return success_count > 0
+
+        except Exception as e:
+            logger.error(f"修复财务数据缺口失败 {symbol}: {e}")
+            return False
+
     def _update_trading_calendar(self, target_date: date) -> Dict[str, Any]:
         """更新交易日历"""
         try:
@@ -1024,9 +1287,7 @@ class SyncManager:
     def _update_stock_list(self) -> Dict[str, Any]:
         """更新股票列表"""
         try:
-            logger.info("开始获取股票列表，这可能需要30-60秒...")
-
-            # 从数据源获取股票列表（可能很慢）
+            # 从数据源获取股票列表
             stock_info = self.data_source_manager.get_stock_info()
 
             # 检查DataFrame是否为空

@@ -465,9 +465,6 @@ poetry run pytest tests/test_api.py::TestAPIManager::test_get_daily_data_success
 # 运行测试并生成覆盖率报告
 poetry run pytest --cov=simtradedata --cov-report=html
 
-# 运行性能测试
-poetry run pytest -m benchmark
-
 # 运行集成测试
 poetry run pytest tests/integration/
 ```

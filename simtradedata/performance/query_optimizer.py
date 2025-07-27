@@ -367,27 +367,15 @@ class QueryOptimizer:
     def _generate_optimization_suggestions(
         self, sql: str, analysis: Dict[str, Any]
     ) -> List[str]:
-        """生成优化建议"""
+        """生成基本优化建议"""
         suggestions = []
 
-        # 执行时间建议
+        # 只保留最基本的建议
         if analysis.get("execution_time", 0) > self.slow_query_threshold:
             suggestions.append("查询执行时间较长，建议优化")
 
-        # 索引使用建议
-        if not analysis.get("uses_index", True):
-            suggestions.append("查询未使用索引，建议添加合适的索引")
-
-        # 扫描类型建议
-        if analysis.get("scan_type") == "table_scan":
-            suggestions.append("查询使用全表扫描，建议添加索引或优化WHERE条件")
-
-        # SQL模式建议
         if "SELECT *" in sql.upper():
             suggestions.append("避免使用SELECT *，建议指定具体字段")
-
-        if "ORDER BY" in sql.upper() and "LIMIT" not in sql.upper():
-            suggestions.append("ORDER BY查询建议添加LIMIT限制结果数量")
 
         return suggestions
 

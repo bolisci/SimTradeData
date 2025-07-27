@@ -294,32 +294,7 @@ class QueryCache:
             logger.error(f"获取缓存统计失败: {e}")
             return {"error": str(e)}
 
-    def invalidate_pattern(self, pattern: str) -> int:
-        """
-        按模式失效缓存
-
-        Args:
-            pattern: 匹配模式
-
-        Returns:
-            int: 失效的缓存数量
-        """
-        try:
-            invalidated_keys = []
-
-            for cache_key in self._cache_store.keys():
-                if pattern in cache_key:
-                    invalidated_keys.append(cache_key)
-
-            for key in invalidated_keys:
-                self._remove(key)
-
-            logger.debug(f"按模式失效缓存: {pattern}, 数量: {len(invalidated_keys)}")
-            return len(invalidated_keys)
-
-        except Exception as e:
-            logger.error(f"按模式失效缓存失败: {e}")
-            return 0
+    # 删除复杂的模式失效方法，保持简洁
 
     def warm_up(self, queries: List[Dict[str, Any]]) -> int:
         """

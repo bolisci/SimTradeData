@@ -123,66 +123,25 @@ info_data = pd.DataFrame({
 api_manager.store_stock_info(info_data)
 ```
 
-### 多市场管理器
+### 数据查询API
 
-#### MultiMarketManager
-
-提供多市场数据统一管理功能。
+#### 基本查询
 
 ```python
-from simtradedata.multi_market import MultiMarketManager
+from simtradedata.api import APIRouter
 
-multi_market = MultiMarketManager(db_manager, cache_manager, config)
+router = APIRouter(db_manager, config)
+
+# 获取股票信息
+stocks = router.get_stock_info(symbols=['000001.SZ'])
+
+# 获取历史数据
+history = router.get_history(
+    symbols=['000001.SZ'],
+    start_date='2024-01-01',
+    end_date='2024-01-31'
+)
 ```
-
-**get_supported_markets()**
-- 获取支持的市场列表
-- 返回: list
-
-```python
-markets = multi_market.get_supported_markets()
-# ['SZ', 'SS', 'HK', 'US']
-```
-
-**get_unified_data(symbols, start_date, end_date)**
-- 获取多市场统一数据
-- 参数:
-  - `symbols` (list): 股票代码列表（可包含不同市场）
-  - `start_date` (str): 开始日期
-  - `end_date` (str): 结束日期
-- 返回: pandas.DataFrame
-
-```python
-data = multi_market.get_unified_data(['000001.SZ', '00700.HK'], '2024-01-01', '2024-01-31')
-```
-
-### 扩展数据管理器
-
-#### ExtendedDataManager
-
-提供ETF、板块、技术指标等扩展数据管理。
-
-```python
-from simtradedata.extended_data import ExtendedDataManager
-
-extended_data = ExtendedDataManager(db_manager, cache_manager, config)
-```
-
-**get_etf_info(symbol)**
-- 获取ETF信息
-- 参数:
-  - `symbol` (str): ETF代码
-- 返回: pandas.DataFrame
-
-```python
-etf_info = extended_data.get_etf_info('510050.SS')
-```
-
-**get_sector_constituents(sector_code)**
-- 获取板块成分股
-- 参数:
-  - `sector_code` (str): 板块代码
-- 返回: pandas.DataFrame
 
 ```python
 constituents = extended_data.get_sector_constituents('BK001')
@@ -472,23 +431,7 @@ stats = optimizer.get_cache_stats()
 suggestions = optimizer.suggest_indexes('daily_data')
 ```
 
-### 简化的查询处理
 
-```python
-from simtradedata.performance import QueryOptimizer
-
-optimizer = QueryOptimizer(db_manager, config)
-
-# 直接执行查询（无复杂并发）
-result = optimizer.execute_with_cache(sql, params)
-
-# 获取基本统计
-stats = optimizer.get_cache_stats()
-
-# 批量处理
-task_ids = processor.submit_batch_tasks(tasks)
-results = processor.get_batch_results(task_ids)
-```
 
 ## 📈 简化的监控
 

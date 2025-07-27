@@ -87,7 +87,7 @@ class TechnicalIndicators:
             df["close"] = pd.to_numeric(df["close"], errors="coerce")
             df = df.dropna()
 
-            if len(df) < max(self.ma_periods):
+            if len(df) < 5:  # 简化：只需要5天数据
                 logger.debug(f"历史数据不足，无法计算指标: {symbol}, 数据量: {len(df)}")
                 return ptrade_data
 

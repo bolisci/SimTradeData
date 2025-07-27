@@ -90,7 +90,7 @@ class DataProcessingEngine:
         )
 
     def _validate_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """极简数据验证"""
+        """极简数据验证（修复空字符串转换问题）"""
         # 字段映射
         field_mapping = {
             "open": ["open", "开盘"],
@@ -100,11 +100,20 @@ class DataProcessingEngine:
             "volume": ["volume", "成交量"],
         }
 
+        def safe_float(value, default=0.0):
+            """安全的浮点数转换"""
+            if value is None or value == "" or str(value).strip() == "":
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+
         validated_data = {}
         for std_field, possible_fields in field_mapping.items():
             for field in possible_fields:
-                if field in data and data[field] is not None:
-                    validated_data[std_field] = float(data[field])
+                if field in data:
+                    validated_data[std_field] = safe_float(data[field])
                     break
             else:
                 validated_data[std_field] = 0.0

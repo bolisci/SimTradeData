@@ -115,6 +115,9 @@ class BaoStockAdapter(BaseDataSource):
             if df.empty:
                 return {}
 
+            # 清理DataFrame中的空字符串
+            df = df.replace("", None)
+
             # 直接返回DataFrame
             return df
 
@@ -233,7 +236,7 @@ class BaoStockAdapter(BaseDataSource):
         self,
         symbol: str,
         start_date: Union[str, date],
-        end_date: Union[str, date] = None,
+        end_date: Union[str, date, None] = None,
     ) -> List[Dict[str, Any]]:
         """获取除权除息数据"""
         if not self.is_connected():
@@ -247,17 +250,160 @@ class BaoStockAdapter(BaseDataSource):
             try:
                 bs_symbol = self._convert_to_baostock_symbol(symbol)
 
-                rs = self._baostock.query_dividend_data(
-                    code=bs_symbol, start_date=start_date, end_date=end_date
+                # BaoStock的除权除息API只支持按年查询
+                start_year = (
+                    start_date.year
+                    if hasattr(start_date, "year")
+                    else int(str(start_date)[:4])
                 )
-                df = rs.get_data()
-                return self._convert_adjustment_data(df, symbol)
+                end_year = (
+                    end_date.year
+                    if hasattr(end_date, "year")
+                    else int(str(end_date)[:4])
+                )
+
+                all_dataframes = []
+                for year in range(start_year, end_year + 1):
+                    rs = self._baostock.query_dividend_data(
+                        code=bs_symbol, year=str(year)
+                    )
+
+                    if rs.error_code == "0":
+                        # 直接使用get_data()获取DataFrame
+                        df = rs.get_data()
+                        if not df.empty:
+                            all_dataframes.append(df)
+
+                if all_dataframes:
+                    # 合并所有年份的数据
+                    combined_df = pd.concat(all_dataframes, ignore_index=True)
+                    # 清理DataFrame中的空字符串
+                    combined_df = combined_df.replace("", None)
+                    return self._convert_adjustment_data(combined_df, symbol)
+                else:
+                    return []
 
             except Exception as e:
                 logger.error(f"BaoStock获取除权除息数据失败 {symbol}: {e}")
                 raise DataSourceDataError(f"获取除权除息数据失败: {e}")
 
         return self._retry_request(_fetch_data)
+
+    def get_valuation_data(
+        self,
+        symbol: str,
+        trade_date: Union[str, date],
+    ) -> Dict[str, Any]:
+        """获取估值数据（从K线数据中提取）"""
+        if not self.is_connected():
+            self.connect()
+
+        symbol = self._normalize_symbol(symbol)
+        trade_date = self._normalize_date(trade_date)
+
+        def _fetch_data():
+            try:
+                bs_symbol = self._convert_to_baostock_symbol(symbol)
+
+                # 获取包含估值数据的K线数据
+                rs = self._baostock.query_history_k_data_plus(
+                    bs_symbol,
+                    "date,code,close,peTTM,pbMRQ,psTTM,pcfNcfTTM",
+                    start_date=trade_date,
+                    end_date=trade_date,
+                    frequency="d",
+                    adjustflag="3",
+                )
+
+                # 直接使用get_data()获取DataFrame
+                df = rs.get_data()
+
+                if df.empty:
+                    return {}
+
+                # 清理DataFrame中的空字符串
+                df = df.replace("", None)
+
+                # 取最新一条记录并转换
+                latest = df.iloc[-1]
+                return self._convert_valuation_data(latest, symbol, trade_date)
+
+            except Exception as e:
+                logger.error(f"BaoStock获取估值数据失败 {symbol}: {e}")
+                raise DataSourceDataError(f"获取估值数据失败: {e}")
+
+        return self._retry_request(_fetch_data)
+
+    def _convert_valuation_data(
+        self, data, symbol: str, trade_date: str
+    ) -> Dict[str, Any]:
+        """转换估值数据格式"""
+
+        def safe_float(value, default=0.0):
+            """安全的浮点数转换"""
+            if pd.isna(value) or value == "" or value is None:
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+
+        return {
+            "symbol": symbol,
+            "date": str(trade_date),
+            "pe_ratio": safe_float(data.get("peTTM", 0)),
+            "pb_ratio": safe_float(data.get("pbMRQ", 0)),
+            "ps_ratio": safe_float(data.get("psTTM", 0)),
+            "pcf_ratio": safe_float(data.get("pcfNcfTTM", 0)),
+            "market_cap": 0,  # BaoStock K线数据中没有市值，需要单独计算
+            "circulating_cap": 0,  # BaoStock K线数据中没有流通市值
+            "source": "baostock",
+        }
+
+    def _convert_adjustment_data(self, df, symbol: str) -> List[Dict[str, Any]]:
+        """转换除权除息数据格式"""
+        adjustment_list = []
+
+        if df is None or df.empty:
+            return adjustment_list
+
+        # BaoStock除权除息字段包括：dividOperateDate, dividCashPsBeforeTax, dividStocksPs等
+        for _, row in df.iterrows():
+            try:
+                # 安全获取字段值
+                ex_date = row.get("dividOperateDate", "")
+                dividend = row.get("dividCashPsBeforeTax", "")
+                stock_dividend = row.get("dividStocksPs", "")
+
+                # 安全转换数值
+                dividend_value = (
+                    float(dividend)
+                    if dividend and str(dividend) != "" and not pd.isna(dividend)
+                    else 0
+                )
+                stock_dividend_value = (
+                    float(stock_dividend)
+                    if stock_dividend
+                    and str(stock_dividend) != ""
+                    and not pd.isna(stock_dividend)
+                    else 0
+                )
+
+                if ex_date and str(ex_date) != "" and not pd.isna(ex_date):
+                    adjustment_list.append(
+                        {
+                            "symbol": symbol,
+                            "ex_date": str(ex_date),
+                            "dividend": dividend_value,
+                            "split_ratio": 1.0,  # BaoStock没有拆股数据
+                            "bonus_ratio": stock_dividend_value,
+                            "source": "baostock",
+                        }
+                    )
+            except (ValueError, TypeError, KeyError):
+                continue
+
+        return adjustment_list
 
     def _convert_to_baostock_symbol(self, symbol: str) -> str:
         """转换为BaoStock股票代码格式"""
@@ -352,25 +498,6 @@ class BaoStockAdapter(BaseDataSource):
             )
 
         return calendar_list
-
-    def _convert_adjustment_data(
-        self, df: pd.DataFrame, symbol: str
-    ) -> List[Dict[str, Any]]:
-        """转换除权除息数据格式"""
-        adjustment_list = []
-
-        for _, row in df.iterrows():
-            adjustment_list.append(
-                {
-                    "symbol": symbol,
-                    "ex_date": row["dividOperateDate"],
-                    "dividend": float(row["cash"]) if row["cash"] else 0,
-                    "split_ratio": float(row["split"]) if row["split"] else 1,
-                    "bonus_ratio": float(row["bonus"]) if row["bonus"] else 0,
-                }
-            )
-
-        return adjustment_list
 
     def get_capabilities(self) -> Dict[str, Any]:
         """获取BaoStock能力信息"""

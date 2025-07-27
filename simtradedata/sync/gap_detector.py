@@ -35,7 +35,124 @@ class GapDetector:
         self.check_frequencies = self.config.get("gap_detection.frequencies", ["1d"])
         self.exclude_weekends = self.config.get("gap_detection.exclude_weekends", True)
 
+        # 支持的表格和对应的日期字段
+        self.supported_tables = {
+            "market_data": {
+                "date_column": "date",
+                "frequency_column": "frequency",
+                "description": "市场数据",
+            },
+            "valuations": {
+                "date_column": "date",
+                "frequency_column": None,
+                "description": "估值数据",
+            },
+            "technical_indicators": {
+                "date_column": "date",
+                "frequency_column": "frequency",
+                "description": "技术指标",
+            },
+            "financials": {
+                "date_column": "report_date",
+                "frequency_column": None,
+                "description": "财务数据",
+            },
+            "corporate_actions": {
+                "date_column": "ex_date",
+                "frequency_column": None,
+                "description": "除权除息数据",
+            },
+        }
+
         logger.info("数据缺口检测器初始化完成")
+
+    def detect_all_tables_gaps(
+        self,
+        start_date: date = None,
+        end_date: date = None,
+        symbols: List[str] = None,
+        tables: List[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        检测所有表格的数据缺口
+
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            symbols: 股票代码列表
+            tables: 要检测的表格列表，默认检测所有支持的表格
+
+        Returns:
+            Dict[str, Any]: 按表格分组的缺口检测结果
+        """
+        if start_date is None:
+            start_date = datetime.now().date() - timedelta(days=30)
+        if end_date is None:
+            end_date = datetime.now().date()
+        if symbols is None:
+            symbols = self._get_active_symbols()
+        if tables is None:
+            tables = list(self.supported_tables.keys())
+
+        logger.info(f"开始检测所有表格缺口: {len(tables)}个表格, {len(symbols)}只股票")
+
+        detection_result = {
+            "start_date": str(start_date),
+            "end_date": str(end_date),
+            "symbols_count": len(symbols),
+            "tables_checked": len(tables),
+            "gaps_by_table": {},
+            "summary": {
+                "total_gaps": 0,
+                "tables_with_gaps": 0,
+                "symbols_with_gaps": set(),
+                "gap_types": defaultdict(int),
+            },
+        }
+
+        # 按表格检测缺口
+        for table_name in tables:
+            if table_name not in self.supported_tables:
+                logger.warning(f"不支持的表格: {table_name}")
+                continue
+
+            try:
+                table_gaps = self._detect_table_gaps(
+                    table_name, symbols, start_date, end_date
+                )
+                detection_result["gaps_by_table"][table_name] = table_gaps
+
+                # 更新汇总统计
+                if table_gaps["gaps"]:
+                    detection_result["summary"]["tables_with_gaps"] += 1
+                    detection_result["summary"]["total_gaps"] += len(table_gaps["gaps"])
+
+                    for gap in table_gaps["gaps"]:
+                        detection_result["summary"]["symbols_with_gaps"].add(
+                            gap["symbol"]
+                        )
+                        detection_result["summary"]["gap_types"][gap["gap_type"]] += 1
+
+            except Exception as e:
+                logger.error(f"检测表格 {table_name} 缺口失败: {e}")
+                detection_result["gaps_by_table"][table_name] = {
+                    "error": str(e),
+                    "gaps": [],
+                    "symbols_with_gaps": [],
+                }
+
+        # 转换set为list以便JSON序列化
+        detection_result["summary"]["symbols_with_gaps"] = list(
+            detection_result["summary"]["symbols_with_gaps"]
+        )
+
+        logger.info(
+            f"所有表格缺口检测完成: 总缺口={detection_result['summary']['total_gaps']}, "
+            f"涉及表格={detection_result['summary']['tables_with_gaps']}, "
+            f"涉及股票={len(detection_result['summary']['symbols_with_gaps'])}"
+        )
+
+        return detection_result
 
     def detect_all_gaps(
         self,
@@ -175,6 +292,117 @@ class GapDetector:
         result["symbols_with_gaps"] = list(result["symbols_with_gaps"])
 
         return result
+
+    def _detect_table_gaps(
+        self, table_name: str, symbols: List[str], start_date: date, end_date: date
+    ) -> Dict[str, Any]:
+        """检测特定表格的缺口"""
+        logger.info(f"检测表格缺口: {table_name}, 股票数量: {len(symbols)}")
+
+        table_config = self.supported_tables[table_name]
+        result = {
+            "table_name": table_name,
+            "description": table_config["description"],
+            "symbols_with_gaps": [],
+            "gaps": [],
+        }
+
+        for symbol in symbols:
+            try:
+                symbol_gaps = self._detect_symbol_table_gaps(
+                    table_name, symbol, start_date, end_date
+                )
+
+                if symbol_gaps:
+                    result["symbols_with_gaps"].append(symbol)
+                    result["gaps"].extend(symbol_gaps)
+
+            except Exception as e:
+                logger.debug(f"检测 {table_name} 表格 {symbol} 缺口失败: {e}")
+
+        logger.debug(
+            f"表格 {table_name} 缺口检测完成: 发现 {len(result['gaps'])} 个缺口"
+        )
+        return result
+
+    def _detect_symbol_table_gaps(
+        self, table_name: str, symbol: str, start_date: date, end_date: date
+    ) -> List[Dict[str, Any]]:
+        """检测单个股票在特定表格中的缺口"""
+        table_config = self.supported_tables[table_name]
+        date_column = table_config["date_column"]
+        frequency_column = table_config["frequency_column"]
+
+        # 获取交易日
+        trading_days = self._get_trading_days(start_date, end_date)
+        if not trading_days:
+            return []
+
+        # 获取已有数据日期
+        existing_dates = self._get_existing_table_dates(
+            table_name, symbol, start_date, end_date, date_column, frequency_column
+        )
+
+        # 检测日期缺口
+        gaps = self._detect_date_gaps(
+            symbol,
+            trading_days,
+            existing_dates,
+            frequency_column or "1d",  # 如果没有频率字段，默认为日线
+        )
+
+        # 为每个缺口添加表格信息
+        for gap in gaps:
+            gap["table_name"] = table_name
+            gap["description"] = table_config["description"]
+
+        return gaps
+
+    def _get_existing_table_dates(
+        self,
+        table_name: str,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        date_column: str,
+        frequency_column: str = None,
+    ) -> List[date]:
+        """获取表格中已有数据日期"""
+        try:
+            if frequency_column:
+                # 有频率字段的表格（如market_data, technical_indicators）
+                sql = f"""
+                SELECT DISTINCT {date_column} FROM {table_name}
+                WHERE symbol = ? AND {frequency_column} = ?
+                AND {date_column} >= ? AND {date_column} <= ?
+                ORDER BY {date_column}
+                """
+                params = (symbol, "1d", str(start_date), str(end_date))
+            else:
+                # 没有频率字段的表格（如valuations, financials, corporate_actions）
+                sql = f"""
+                SELECT DISTINCT {date_column} FROM {table_name}
+                WHERE symbol = ?
+                AND {date_column} >= ? AND {date_column} <= ?
+                ORDER BY {date_column}
+                """
+                params = (symbol, str(start_date), str(end_date))
+
+            rows = self.db_manager.fetchall(sql, params)
+            dates = []
+            for row in rows:
+                date_str = row[date_column]
+                if date_str:
+                    try:
+                        dates.append(datetime.strptime(date_str, "%Y-%m-%d").date())
+                    except ValueError:
+                        continue
+
+            return dates
+
+        except Exception as e:
+            logger.debug(f"获取 {table_name} 表格 {symbol} 已有日期失败: {e}")
+            return []
 
     def _detect_date_gaps(
         self,
@@ -404,4 +632,121 @@ class GapDetector:
 
         except Exception as e:
             logger.error(f"生成缺口报告失败: {e}")
+            return f"报告生成失败: {e}"
+
+    def generate_all_tables_gap_report(self, detection_result: Dict[str, Any]) -> str:
+        """生成所有表格的缺口报告"""
+        try:
+            report_lines = []
+            report_lines.append("=" * 60)
+            report_lines.append("数据缺口检测报告 - 所有表格")
+            report_lines.append("=" * 60)
+            report_lines.append("")
+
+            # 基本信息
+            report_lines.append("基本信息:")
+            report_lines.append(
+                f"  检测日期范围: {detection_result['start_date']} 到 {detection_result['end_date']}"
+            )
+            report_lines.append(f"  检测股票数量: {detection_result['symbols_count']}")
+            report_lines.append(f"  检测表格数量: {detection_result['tables_checked']}")
+            report_lines.append("")
+
+            # 汇总统计
+            summary = detection_result["summary"]
+            report_lines.append("汇总统计:")
+            report_lines.append(f"  总缺口数量: {summary['total_gaps']}")
+            report_lines.append(f"  有缺口的表格: {summary['tables_with_gaps']}")
+            report_lines.append(f"  涉及股票数量: {len(summary['symbols_with_gaps'])}")
+
+            if summary["gap_types"]:
+                report_lines.append("  缺口类型分布:")
+                for gap_type, count in summary["gap_types"].items():
+                    report_lines.append(f"    {gap_type}: {count}")
+            report_lines.append("")
+
+            # 按表格详细统计
+            for table_name, table_data in detection_result["gaps_by_table"].items():
+                if "error" in table_data:
+                    report_lines.append(
+                        f"表格 {table_name} ({table_data.get('description', '')}):"
+                    )
+                    report_lines.append(f"  ❌ 检测失败: {table_data['error']}")
+                    report_lines.append("")
+                    continue
+
+                report_lines.append(
+                    f"表格 {table_name} ({table_data.get('description', '')}):"
+                )
+                report_lines.append(
+                    f"  涉及股票: {len(table_data['symbols_with_gaps'])}"
+                )
+                report_lines.append(f"  缺口数量: {len(table_data['gaps'])}")
+
+                if table_data["gaps"]:
+                    # 按严重程度分组
+                    severity_groups = defaultdict(list)
+                    for gap in table_data["gaps"]:
+                        severity_groups[gap["severity"]].append(gap)
+
+                    for severity in ["critical", "high", "medium", "low"]:
+                        if severity in severity_groups:
+                            gaps = severity_groups[severity]
+                            report_lines.append(
+                                f"  {severity.upper()} 级缺口: {len(gaps)}"
+                            )
+
+                            # 显示前3个缺口示例
+                            for gap in gaps[:3]:
+                                gap_days = (
+                                    datetime.strptime(
+                                        gap["end_date"], "%Y-%m-%d"
+                                    ).date()
+                                    - datetime.strptime(
+                                        gap["start_date"], "%Y-%m-%d"
+                                    ).date()
+                                ).days + 1
+                                report_lines.append(
+                                    f"    - {gap['symbol']}: {gap['start_date']} 到 {gap['end_date']} ({gap_days}天)"
+                                )
+
+                            if len(gaps) > 3:
+                                report_lines.append(
+                                    f"    ... 还有 {len(gaps) - 3} 个缺口"
+                                )
+
+                report_lines.append("")
+
+            # 建议修复的缺口
+            critical_gaps = []
+            for table_data in detection_result["gaps_by_table"].values():
+                if "gaps" in table_data:
+                    for gap in table_data["gaps"]:
+                        if gap["severity"] in ["high", "critical"]:
+                            critical_gaps.append(gap)
+
+            if critical_gaps:
+                report_lines.append("建议优先修复的缺口:")
+                for gap in critical_gaps[:10]:  # 只显示前10个
+                    gap_days = (
+                        datetime.strptime(gap["end_date"], "%Y-%m-%d").date()
+                        - datetime.strptime(gap["start_date"], "%Y-%m-%d").date()
+                    ).days + 1
+                    report_lines.append(
+                        f"  - {gap['table_name']}.{gap['symbol']}: {gap['start_date']} 到 {gap['end_date']} "
+                        f"({gap_days}天, {gap['severity'].upper()})"
+                    )
+
+                if len(critical_gaps) > 10:
+                    report_lines.append(
+                        f"  ... 还有 {len(critical_gaps) - 10} 个高优先级缺口"
+                    )
+
+            report_lines.append("")
+            report_lines.append("=" * 60)
+
+            return "\n".join(report_lines)
+
+        except Exception as e:
+            logger.error(f"生成所有表格缺口报告失败: {e}")
             return f"报告生成失败: {e}"

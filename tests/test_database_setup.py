@@ -13,8 +13,8 @@ import pytest
 from simtradedata.config import Config
 from simtradedata.database import (
     DatabaseManager,
-    create_all_tables,
-    verify_database_schema,
+    create_database_schema,
+    validate_schema,
 )
 
 # 设置日志
@@ -65,65 +65,68 @@ class TestDatabaseSetup:
     def test_table_creation(self, db_manager):
         """测试表创建"""
         # 创建所有表
-        success = create_all_tables(db_manager)
+        success = create_database_schema(db_manager)
         assert success, "表创建失败"
 
         # 验证表结构
-        schema_results = verify_database_schema(db_manager)
+        schema_results = validate_schema(db_manager)
 
         expected_tables = [
+            "stocks",
+            "trading_calendar",
             "market_data",
-            "ptrade_stock_info",
-            "ptrade_calendar",
-            "ptrade_fundamentals",
-            "market_data_source_config",
+            "valuations",
+            "technical_indicators",
+            "financials",
+            "corporate_actions",
+            "data_sources",
+            "data_source_quality",
             "sync_status",
             "system_config",
         ]
 
         for table in expected_tables:
-            assert schema_results.get(table, False), f"表 {table} 创建失败"
+            table_key = f"table_{table}"
+            assert schema_results.get(table_key, False), f"表 {table} 创建失败"
 
         logger.info("✅ 数据库表创建测试通过")
 
     def test_table_operations(self, db_manager):
         """测试表操作"""
         # 先创建表
-        create_all_tables(db_manager)
+        create_database_schema(db_manager)
 
         # 测试插入数据
         test_data = {
             "symbol": "000001.SZ",
-            "market": "SZ",
-            "trade_date": "2024-01-01",
+            "date": "2024-01-01",
             "frequency": "1d",
             "open": 10.0,
             "high": 10.5,
             "low": 9.8,
             "close": 10.2,
             "volume": 1000000,
-            "money": 10200000,
-            "price": 10.2,
+            "amount": 10200000,
+            "source": "test",
         }
 
         sql = """
-        INSERT INTO market_data 
-        (symbol, market, trade_date, frequency, open, high, low, close, volume, money, price)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO market_data
+        (symbol, date, frequency, open, high, low, close, volume, amount, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
         params = (
             test_data["symbol"],
-            test_data["market"],
-            test_data["trade_date"],
+            test_data["date"],
             test_data["frequency"],
             test_data["open"],
             test_data["high"],
             test_data["low"],
             test_data["close"],
             test_data["volume"],
-            test_data["money"],
-            test_data["price"],
+            test_data["amount"],
+            test_data["source"],
         )
 
         db_manager.execute(sql, params)
@@ -258,7 +261,7 @@ def test_full_database_setup():
             db_path=db_config["path"],
             **{k: v for k, v in db_config.items() if k != "path"},
         )
-        schema_results = verify_database_schema(db_manager_verify)
+        schema_results = validate_schema(db_manager_verify)
         failed_tables = [
             table for table, exists in schema_results.items() if not exists
         ]

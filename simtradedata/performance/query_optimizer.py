@@ -513,6 +513,18 @@ class QueryOptimizer:
             ],
         }
 
+    def get_slow_queries(self, threshold: float = 1.0) -> List[str]:
+        """获取慢查询列表"""
+        try:
+            slow_queries = []
+            for sql, times in self.query_stats.items():
+                avg_time = sum(times) / len(times) if times else 0.0
+                if avg_time > threshold:
+                    slow_queries.append(sql)
+            return slow_queries
+        except Exception:
+            return []
+
     def _calculate_avg_execution_time(self) -> float:
         """计算平均执行时间"""
         try:

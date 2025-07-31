@@ -99,33 +99,194 @@ class DataProcessingEngine(BaseManager):
             "total_records": 0,
         }
 
-        # 获取原始数据
-        raw_data = self.data_source_manager.get_daily_data(symbol, start_date, end_date)
+        try:
+            # 获取原始数据
+            raw_data = self.data_source_manager.get_daily_data(
+                symbol, start_date, end_date
+            )
 
-        # 处理数据
-        if hasattr(raw_data, "iterrows"):
-            for _, row in raw_data.iterrows():
-                daily_data = row.to_dict()
+            # 检查数据格式
+            if raw_data is None:
+                self._log_warning("process_symbol_data", f"未获取到数据: {symbol}")
+                return result
 
-                # 验证数据
-                validated_data = self._validate_data(daily_data)
+            # 处理嵌套的装饰器返回格式
+            if isinstance(raw_data, dict) and "data" in raw_data:
+                raw_data = raw_data["data"]
+                if isinstance(raw_data, dict) and "data" in raw_data:
+                    raw_data = raw_data["data"]
 
-                # 存储数据
-                self._store_market_data(
-                    validated_data, symbol, daily_data.get("date", start_date)
+            # 如果数据是DataFrame，进行批量处理和计算
+            if hasattr(raw_data, "iterrows") and hasattr(raw_data, "sort_values"):
+                processed_count = self._process_dataframe_data(raw_data, symbol, result)
+                result["total_records"] = processed_count
+            elif isinstance(raw_data, list):
+                # 如果是列表格式，转换为逐行处理
+                for item in raw_data:
+                    try:
+                        validated_data = self._validate_data(item)
+                        trade_date = item.get("date", str(start_date))
+                        self._store_market_data(validated_data, symbol, trade_date)
+                        result["processed_dates"].append(trade_date)
+                    except Exception as e:
+                        self._log_error(
+                            "process_symbol_data", e, symbol=symbol, item=item
+                        )
+                        result["failed_dates"].append(str(item.get("date", start_date)))
+
+                result["total_records"] = len(result["processed_dates"])
+            else:
+                self._log_warning(
+                    "process_symbol_data", f"不支持的数据格式: {type(raw_data)}"
                 )
 
-                result["processed_dates"].append(
-                    str(daily_data.get("date", start_date))
-                )
-
-        result["total_records"] = len(result["processed_dates"])
+        except Exception as e:
+            self._log_error("process_symbol_data", e, symbol=symbol)
+            result["failed_dates"].append(f"{start_date}~{end_date}")
 
         self._log_method_end(
             "process_symbol_data", records=result["total_records"], symbol=symbol
         )
 
         return result
+
+    def _process_dataframe_data(self, df, symbol: str, result: Dict[str, Any]) -> int:
+        """处理DataFrame格式的数据，计算衍生字段"""
+
+        if df.empty:
+            return 0
+
+        try:
+            # 确保DataFrame有必要的列
+            required_columns = ["date", "open", "high", "low", "close", "volume"]
+            missing_cols = [col for col in required_columns if col not in df.columns]
+            if missing_cols:
+                self._log_warning(
+                    "_process_dataframe_data", f"缺少必要列: {missing_cols}"
+                )
+                return 0
+
+            # 按日期排序
+            df = df.sort_values("date").copy()
+
+            # 计算衍生字段
+            df = self._calculate_derived_fields(df, symbol)
+
+            # 批量存储到数据库
+            records_stored = 0
+            for _, row in df.iterrows():
+                try:
+                    # 转换为字典并验证
+                    row_dict = row.to_dict()
+                    validated_data = self._validate_and_prepare_data(row_dict)
+
+                    # 存储数据
+                    self._store_enhanced_market_data(
+                        validated_data, symbol, row_dict.get("date")
+                    )
+
+                    result["processed_dates"].append(str(row_dict.get("date")))
+                    records_stored += 1
+
+                except Exception as e:
+                    self._log_error(
+                        "_process_dataframe_data",
+                        e,
+                        symbol=symbol,
+                        date=row.get("date"),
+                    )
+                    result["failed_dates"].append(str(row.get("date", "unknown")))
+
+            return records_stored
+
+        except Exception as e:
+            self._log_error("_process_dataframe_data", e, symbol=symbol)
+            return 0
+
+    def _calculate_derived_fields(self, df, symbol: str):
+        """计算衍生字段"""
+        import numpy as np
+        import pandas as pd
+
+        # 确保数据按日期排序
+        df = df.sort_values("date")
+
+        # 确保数值列为float类型
+        numeric_columns = ["open", "high", "low", "close", "volume", "amount"]
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # 计算前一日收盘价（向前填充）
+        df["prev_close"] = df["close"].shift(1)
+
+        # 计算涨跌额
+        df["change_amount"] = df["close"] - df["prev_close"]
+
+        # 计算涨跌幅（百分比）
+        df["change_percent"] = np.where(
+            df["prev_close"] > 0,
+            (df["change_amount"] / df["prev_close"] * 100).round(4),
+            0.0,
+        )
+
+        # 计算振幅
+        df["amplitude"] = np.where(
+            df["prev_close"] > 0,
+            ((df["high"] - df["low"]) / df["prev_close"] * 100).round(4),
+            0.0,
+        )
+
+        # 计算换手率（如果有流通股本数据）
+        # 这里暂时设为None，后续可以从股票信息表获取流通股本
+        df["turnover_rate"] = None
+
+        # 计算涨跌停价格（简化版本，假设10%涨跌停）
+        df["high_limit"] = np.where(
+            df["prev_close"] > 0, (df["prev_close"] * 1.1).round(2), None
+        )
+        df["low_limit"] = np.where(
+            df["prev_close"] > 0, (df["prev_close"] * 0.9).round(2), None
+        )
+
+        # 判断是否涨停/跌停（处理None值）
+        df["is_limit_up"] = False
+        df["is_limit_down"] = False
+
+        # 只对有涨跌停价格的行进行判断
+        valid_high_limit = df["high_limit"].notna()
+        valid_low_limit = df["low_limit"].notna()
+
+        if valid_high_limit.any():
+            df.loc[valid_high_limit, "is_limit_up"] = (
+                df.loc[valid_high_limit, "close"]
+                >= df.loc[valid_high_limit, "high_limit"]
+            )
+        if valid_low_limit.any():
+            df.loc[valid_low_limit, "is_limit_down"] = (
+                df.loc[valid_low_limit, "close"] <= df.loc[valid_low_limit, "low_limit"]
+            )
+
+        # 第一行数据没有前一日数据，设为默认值
+        if len(df) > 0:
+            first_idx = df.index[0]
+            df.loc[
+                first_idx,
+                [
+                    "prev_close",
+                    "change_amount",
+                    "change_percent",
+                    "amplitude",
+                    "high_limit",
+                    "low_limit",
+                    "is_limit_up",
+                    "is_limit_down",
+                ],
+            ] = [None, 0.0, 0.0, 0.0, None, None, False, False]
+
+        self.logger.debug(f"为股票 {symbol} 计算了 {len(df)} 条记录的衍生字段")
+
+        return df
 
     @unified_error_handler(return_dict=True)
     def process_stock_data(
@@ -140,6 +301,115 @@ class DataProcessingEngine(BaseManager):
         return self.process_symbol_data(
             symbol, start_date, end_date, frequency, force_update
         )
+
+    def _validate_and_prepare_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """验证和准备增强数据（包含衍生字段）"""
+
+        def safe_float(value, default=0.0):
+            """安全的浮点数转换"""
+            if value is None or value == "" or str(value).strip() == "":
+                return default
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+
+        def safe_bool(value, default=False):
+            """安全的布尔值转换"""
+            if value is None:
+                return default
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            return default
+
+        # 基础字段验证
+        validated_data = {
+            "open": safe_float(data.get("open")),
+            "high": safe_float(data.get("high")),
+            "low": safe_float(data.get("low")),
+            "close": safe_float(data.get("close")),
+            "volume": safe_float(data.get("volume")),
+            "amount": safe_float(data.get("amount")),
+        }
+
+        # 衍生字段验证
+        validated_data.update(
+            {
+                "prev_close": safe_float(data.get("prev_close")),
+                "change_amount": safe_float(data.get("change_amount")),
+                "change_percent": safe_float(data.get("change_percent")),
+                "amplitude": safe_float(data.get("amplitude")),
+                "turnover_rate": (
+                    safe_float(data.get("turnover_rate"))
+                    if data.get("turnover_rate") is not None
+                    else None
+                ),
+                "high_limit": (
+                    safe_float(data.get("high_limit"))
+                    if data.get("high_limit") is not None
+                    else None
+                ),
+                "low_limit": (
+                    safe_float(data.get("low_limit"))
+                    if data.get("low_limit") is not None
+                    else None
+                ),
+                "is_limit_up": safe_bool(data.get("is_limit_up")),
+                "is_limit_down": safe_bool(data.get("is_limit_down")),
+            }
+        )
+
+        # 数据质量检查
+        if validated_data["high"] < validated_data["low"]:
+            self._log_warning(
+                "_validate_and_prepare_data", "最高价低于最低价，数据异常"
+            )
+
+        if validated_data["close"] <= 0:
+            self._log_warning(
+                "_validate_and_prepare_data", "收盘价为零或负数，数据异常"
+            )
+
+        return validated_data
+
+    def _store_enhanced_market_data(
+        self, data: Dict[str, Any], symbol: str, trade_date
+    ):
+        """存储增强的市场数据（包含衍生字段）"""
+        sql = """
+        INSERT OR REPLACE INTO market_data (
+            symbol, date, frequency, open, high, low, close, volume, amount, 
+            prev_close, change_amount, change_percent, amplitude, turnover_rate,
+            high_limit, low_limit, is_limit_up, is_limit_down, source, quality_score
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        params = (
+            symbol,
+            str(trade_date),
+            "1d",
+            data.get("open", 0),
+            data.get("high", 0),
+            data.get("low", 0),
+            data.get("close", 0),
+            data.get("volume", 0),
+            data.get("amount", 0),
+            data.get("prev_close"),
+            data.get("change_amount", 0),
+            data.get("change_percent", 0),
+            data.get("amplitude", 0),
+            data.get("turnover_rate"),
+            data.get("high_limit"),
+            data.get("low_limit"),
+            data.get("is_limit_up", False),
+            data.get("is_limit_down", False),
+            "processed_enhanced",
+            100,  # 默认质量分数
+        )
+
+        self.db_manager.execute(sql, params)
 
     def _validate_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """数据验证和清洗"""

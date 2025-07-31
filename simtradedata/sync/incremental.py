@@ -49,6 +49,11 @@ class IncrementalSync:
         self.sync_frequencies = self.config.get("sync.frequencies", ["1d"])
         self.enable_parallel = self.config.get("sync.enable_parallel", True)
 
+        # 智能补充配置
+        self.enable_smart_backfill = self.config.get("sync.enable_smart_backfill", True)
+        self.backfill_batch_size = self.config.get("sync.backfill_batch_size", 50)
+        self.backfill_sample_size = self.config.get("sync.backfill_sample_size", 10)
+
         # 同步统计
         self.sync_stats = {
             "total_symbols": 0,
@@ -97,6 +102,95 @@ class IncrementalSync:
 
             self.sync_stats["total_symbols"] = len(symbols)
 
+            # 🚀 智能补充阶段：检查并补充历史数据的衍生字段
+            backfill_stats = {
+                "enabled": self.enable_smart_backfill,
+                "checked_symbols": 0,
+                "needs_backfill_symbols": 0,
+                "backfilled_symbols": 0,
+                "backfilled_records": 0,
+                "backfill_errors": 0,
+            }
+
+            if self.enable_smart_backfill:
+                logger.info("开始智能数据质量检查和补充...")
+
+                # 检查前几只股票来估算整体情况
+                sample_size = min(self.backfill_sample_size, len(symbols))
+                sample_symbols = symbols[:sample_size]
+                needs_backfill_count = 0
+
+                for symbol in sample_symbols:
+                    quality_check = self.check_data_quality(symbol, frequencies[0])
+                    if quality_check.get("needs_backfill", False):
+                        needs_backfill_count += 1
+
+                # 如果样本中有需要补充的数据，则对所有股票进行智能补充
+                if needs_backfill_count > 0:
+                    backfill_ratio = needs_backfill_count / sample_size
+                    estimated_total = int(len(symbols) * backfill_ratio)
+                    logger.info(
+                        f"检测到数据质量问题：样本中 {needs_backfill_count}/{sample_size} 只股票需要补充衍生字段"
+                    )
+                    logger.info(
+                        f"预估全部 {len(symbols)} 只股票中约 {estimated_total} 只需要补充，开始智能补充..."
+                    )
+
+                    # 对所有股票进行智能补充（分批处理以避免内存问题）
+                    batch_size = self.backfill_batch_size
+
+                    for i in range(0, len(symbols), batch_size):
+                        batch_symbols = symbols[i : i + batch_size]
+                        batch_num = i // batch_size + 1
+                        total_batches = (len(symbols) + batch_size - 1) // batch_size
+
+                        logger.info(
+                            f"智能补充批次 {batch_num}/{total_batches}: 处理 {len(batch_symbols)} 只股票"
+                        )
+
+                        for symbol in batch_symbols:
+                            try:
+                                # 快速检查是否需要补充
+                                quality_check = self.check_data_quality(
+                                    symbol, frequencies[0]
+                                )
+                                backfill_stats["checked_symbols"] += 1
+
+                                if quality_check.get("needs_backfill", False):
+                                    backfill_stats["needs_backfill_symbols"] += 1
+
+                                    # 执行智能补充
+                                    backfill_result = self.smart_backfill_symbol(
+                                        symbol, frequencies[0]
+                                    )
+
+                                    if backfill_result.get("success", False):
+                                        backfill_stats["backfilled_symbols"] += 1
+                                        backfill_stats[
+                                            "backfilled_records"
+                                        ] += backfill_result.get("updated_count", 0)
+                                    else:
+                                        backfill_stats["backfill_errors"] += 1
+
+                            except Exception as e:
+                                logger.warning(f"智能补充股票 {symbol} 时出错: {e}")
+                                backfill_stats["backfill_errors"] += 1
+
+                        # 更新进度条（如果有的话）
+                        if progress_bar:
+                            progress_bar.update(len(batch_symbols))
+
+                    logger.info(
+                        f"智能补充完成: 检查了 {backfill_stats['checked_symbols']} 只股票，"
+                        f"补充了 {backfill_stats['backfilled_symbols']} 只股票的 {backfill_stats['backfilled_records']} 条记录"
+                    )
+                else:
+                    logger.info("样本检查显示数据质量良好，跳过智能补充阶段")
+            else:
+                logger.info("智能补充功能已禁用，跳过数据质量检查")
+
+            # 📈 正常增量同步阶段
+
             # 按频率同步
             for frequency in frequencies:
                 freq_result = self._sync_frequency_data(
@@ -107,17 +201,269 @@ class IncrementalSync:
             # 更新同步状态
             self._update_sync_status(target_date, self.sync_stats)
 
+            # 将智能补充统计信息添加到结果中
+            self.sync_stats["smart_backfill"] = backfill_stats
+
             logger.info(
                 f"增量同步完成: 成功={self.sync_stats['success_count']}, "
                 f"错误={self.sync_stats['error_count']}, "
                 f"跳过={self.sync_stats['skipped_count']}"
             )
 
+            if backfill_stats["backfilled_symbols"] > 0:
+                logger.info(
+                    f"智能补充完成: 补充了 {backfill_stats['backfilled_symbols']} 只股票的 "
+                    f"{backfill_stats['backfilled_records']} 条历史记录的衍生字段"
+                )
+
             return self.sync_stats.copy()
 
         except Exception as e:
             logger.error(f"增量同步失败: {e}")
             raise
+
+    def check_data_quality(self, symbol: str, frequency: str = "1d") -> Dict[str, Any]:
+        """
+        检查股票数据质量，特别是衍生字段的完整性
+
+        Args:
+            symbol: 股票代码
+            frequency: 频率
+
+        Returns:
+            Dict[str, Any]: 数据质量报告
+        """
+        try:
+            sql = """
+            SELECT 
+                COUNT(*) as total_records,
+                COUNT(CASE WHEN change_percent IS NULL THEN 1 END) as null_change_percent,
+                COUNT(CASE WHEN prev_close IS NULL THEN 1 END) as null_prev_close,
+                COUNT(CASE WHEN amplitude IS NULL THEN 1 END) as null_amplitude,
+                COUNT(CASE WHEN source LIKE '%enhanced' THEN 1 END) as enhanced_records,
+                MIN(date) as earliest_date,
+                MAX(date) as latest_date
+            FROM market_data 
+            WHERE symbol = ? AND frequency = ?
+            """
+
+            result = self.db_manager.fetchone(sql, (symbol, frequency))
+
+            if result:
+                total = result["total_records"]
+                null_derived = result["null_change_percent"]
+
+                return {
+                    "symbol": symbol,
+                    "total_records": total,
+                    "null_change_percent": null_derived,
+                    "null_prev_close": result["null_prev_close"],
+                    "null_amplitude": result["null_amplitude"],
+                    "enhanced_records": result["enhanced_records"],
+                    "earliest_date": result["earliest_date"],
+                    "latest_date": result["latest_date"],
+                    "needs_backfill": null_derived > 0,
+                    "backfill_ratio": null_derived / total if total > 0 else 0,
+                }
+            else:
+                return {
+                    "symbol": symbol,
+                    "total_records": 0,
+                    "needs_backfill": False,
+                    "backfill_ratio": 0,
+                }
+
+        except Exception as e:
+            logger.error(f"检查数据质量失败 {symbol}: {e}")
+            return {
+                "symbol": symbol,
+                "total_records": 0,
+                "needs_backfill": False,
+                "error": str(e),
+            }
+
+    def smart_backfill_symbol(
+        self, symbol: str, frequency: str = "1d"
+    ) -> Dict[str, Any]:
+        """
+        智能补充单个股票的衍生字段数据
+
+        Args:
+            symbol: 股票代码
+            frequency: 频率
+
+        Returns:
+            Dict[str, Any]: 补充结果
+        """
+        try:
+            logger.info(f"开始智能补充股票数据: {symbol}")
+
+            # 获取该股票的所有数据，按日期排序
+            data_sql = """
+            SELECT date, open, high, low, close, volume, amount
+            FROM market_data 
+            WHERE symbol = ? AND frequency = ?
+            ORDER BY date
+            """
+
+            records = self.db_manager.fetchall(data_sql, (symbol, frequency))
+
+            if not records:
+                return {
+                    "symbol": symbol,
+                    "success": False,
+                    "updated_count": 0,
+                    "message": "无数据记录",
+                }
+
+            # 转换为DataFrame进行批量计算
+            import numpy as np
+            import pandas as pd
+
+            df = pd.DataFrame([dict(record) for record in records])
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date")
+
+            # 确保数值列为float类型
+            numeric_columns = ["open", "high", "low", "close", "volume", "amount"]
+            for col in numeric_columns:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            # 计算前一日收盘价
+            df["prev_close_new"] = df["close"].shift(1)
+
+            # 计算涨跌额
+            df["change_amount_new"] = df["close"] - df["prev_close_new"]
+
+            # 计算涨跌幅（百分比）
+            df["change_percent_new"] = np.where(
+                df["prev_close_new"] > 0,
+                (df["change_amount_new"] / df["prev_close_new"] * 100).round(4),
+                0.0,
+            )
+
+            # 计算振幅
+            df["amplitude_new"] = np.where(
+                df["prev_close_new"] > 0,
+                ((df["high"] - df["low"]) / df["prev_close_new"] * 100).round(4),
+                0.0,
+            )
+
+            # 计算涨跌停价格
+            df["high_limit_new"] = np.where(
+                df["prev_close_new"] > 0, (df["prev_close_new"] * 1.1).round(2), None
+            )
+            df["low_limit_new"] = np.where(
+                df["prev_close_new"] > 0, (df["prev_close_new"] * 0.9).round(2), None
+            )
+
+            # 判断涨停跌停
+            df["is_limit_up_new"] = False
+            df["is_limit_down_new"] = False
+
+            valid_high_limit = df["high_limit_new"].notna()
+            valid_low_limit = df["low_limit_new"].notna()
+
+            if valid_high_limit.any():
+                df.loc[valid_high_limit, "is_limit_up_new"] = (
+                    df.loc[valid_high_limit, "close"]
+                    >= df.loc[valid_high_limit, "high_limit_new"]
+                )
+            if valid_low_limit.any():
+                df.loc[valid_low_limit, "is_limit_down_new"] = (
+                    df.loc[valid_low_limit, "close"]
+                    <= df.loc[valid_low_limit, "low_limit_new"]
+                )
+
+            # 第一行设为默认值
+            if len(df) > 0:
+                first_idx = df.index[0]
+                df.loc[
+                    first_idx,
+                    [
+                        "prev_close_new",
+                        "change_amount_new",
+                        "change_percent_new",
+                        "amplitude_new",
+                        "high_limit_new",
+                        "low_limit_new",
+                        "is_limit_up_new",
+                        "is_limit_down_new",
+                    ],
+                ] = [None, 0.0, 0.0, 0.0, None, None, False, False]
+
+            # 批量更新数据库
+            updated_count = 0
+            update_sql = """
+            UPDATE market_data 
+            SET prev_close = ?, change_amount = ?, change_percent = ?, amplitude = ?,
+                high_limit = ?, low_limit = ?, is_limit_up = ?, is_limit_down = ?,
+                source = CASE WHEN source LIKE '%enhanced' THEN source ELSE 'smart_backfilled_enhanced' END,
+                quality_score = 100
+            WHERE symbol = ? AND date = ? AND frequency = ?
+            """
+
+            for _, row in df.iterrows():
+                try:
+                    params = (
+                        (
+                            row["prev_close_new"]
+                            if pd.notna(row["prev_close_new"])
+                            else None
+                        ),
+                        (
+                            row["change_amount_new"]
+                            if pd.notna(row["change_amount_new"])
+                            else 0.0
+                        ),
+                        (
+                            row["change_percent_new"]
+                            if pd.notna(row["change_percent_new"])
+                            else 0.0
+                        ),
+                        row["amplitude_new"] if pd.notna(row["amplitude_new"]) else 0.0,
+                        (
+                            row["high_limit_new"]
+                            if pd.notna(row["high_limit_new"])
+                            else None
+                        ),
+                        (
+                            row["low_limit_new"]
+                            if pd.notna(row["low_limit_new"])
+                            else None
+                        ),
+                        bool(row["is_limit_up_new"]),
+                        bool(row["is_limit_down_new"]),
+                        symbol,
+                        row["date"].strftime("%Y-%m-%d"),
+                        frequency,
+                    )
+
+                    self.db_manager.execute(update_sql, params)
+                    updated_count += 1
+
+                except Exception as e:
+                    logger.warning(f"更新记录失败 {symbol} {row['date']}: {e}")
+
+            logger.info(f"智能补充完成 {symbol}: 更新 {updated_count} 条记录")
+
+            return {
+                "symbol": symbol,
+                "success": True,
+                "updated_count": updated_count,
+                "total_records": len(df),
+                "message": f"成功更新 {updated_count} 条记录",
+            }
+
+        except Exception as e:
+            logger.error(f"智能补充失败 {symbol}: {e}")
+            return {
+                "symbol": symbol,
+                "success": False,
+                "updated_count": 0,
+                "error": str(e),
+            }
 
     def sync_symbol_range(
         self, symbol: str, start_date: date, end_date: date, frequency: str = "1d"
@@ -581,12 +927,20 @@ class IncrementalSync:
                 progress_bar=progress_bar,  # 传递进度条
             )
 
-            # 转换结果格式
-            result["success_count"] = pipeline_result["success_count"]
-            result["error_count"] += pipeline_result["error_count"]
+            # 转换结果格式 - 处理嵌套的统一错误处理返回格式
+            if isinstance(pipeline_result, dict) and pipeline_result.get(
+                "success", True
+            ):
+                data = pipeline_result.get("data", pipeline_result)
+                result["success_count"] = data.get("success_count", 0)
+                result["error_count"] += data.get("error_count", 0)
+                processed_symbols = data.get("processed_symbols", [])
+            else:
+                result["error_count"] += len(task_symbols)
+                processed_symbols = []
 
             # 为成功的股票创建同步范围记录
-            for symbol in pipeline_result["processed_symbols"]:
+            for symbol in processed_symbols:
                 # 找到对应的任务
                 for task_symbol, start_date, end_date in sync_tasks:
                     if task_symbol == symbol:

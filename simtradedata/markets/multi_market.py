@@ -19,7 +19,12 @@ logger = logging.getLogger(__name__)
 class MultiMarketManager(BaseManager):
     """多市场管理器"""
 
-    def __init__(self, db_manager: DatabaseManager = None, config=None, **dependencies):
+    # 类型注解属性（由BaseManager动态注入）
+    db_manager: DatabaseManager
+
+    def __init__(
+        self, db_manager: Optional[DatabaseManager] = None, config=None, **dependencies
+    ):
         """
         初始化多市场管理器
 
@@ -29,9 +34,9 @@ class MultiMarketManager(BaseManager):
             **dependencies: 其他依赖对象
         """
         # 获取数据库管理器 - 在super().__init__前设置
-        self.db_manager = db_manager
-        if not self.db_manager:
+        if not db_manager:
             raise ValueError("数据库管理器不能为空")
+        self.db_manager = db_manager
 
         # 初始化市场适配器 - 在super().__init__前设置
         self.adapters = {}
@@ -51,6 +56,14 @@ class MultiMarketManager(BaseManager):
         self.logger.info(
             f"多市场管理器初始化完成，支持市场: {list(self.adapters.keys())}"
         )
+
+    def _init_specific_config(self):
+        """初始化多市场管理器特定配置"""
+        # 多市场相关配置
+        self.default_market = self._get_config("default_market", "CN")
+        self.enable_cross_market = self._get_config("enable_cross_market", True)
+        self.market_priority = self._get_config("market_priority", ["CN", "US", "HK"])
+        self.sync_timeout = self._get_config("sync_timeout", 300)
 
     def _init_components(self):
         """初始化多市场组件"""
@@ -252,7 +265,7 @@ class MultiMarketManager(BaseManager):
 
         return self.default_market
 
-    def normalize_symbol(self, symbol: str, market: str = None) -> str:
+    def normalize_symbol(self, symbol: str, market: Optional[str] = None) -> str:
         """
         标准化股票代码
 

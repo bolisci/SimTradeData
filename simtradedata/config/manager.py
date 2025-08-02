@@ -232,13 +232,13 @@ class Config:
         """获取数据库配置"""
         return self.get("database", {})
 
-    def get_market_config(self, market: str = None) -> Dict[str, Any]:
+    def get_market_config(self, market: Optional[str] = None) -> Dict[str, Any]:
         """获取市场配置"""
         if market:
             return self.get(f"markets.{market}", {})
         return self.get("markets", {})
 
-    def get_data_source_config(self, source: str = None) -> Dict[str, Any]:
+    def get_data_source_config(self, source: Optional[str] = None) -> Dict[str, Any]:
         """获取数据源配置"""
         if source:
             return self.get(f"data_sources.{source}", {})
@@ -311,6 +311,14 @@ class ConfigManager(BaseManager):
             self._config = self.config
 
         self._initialized = True
+
+    def _init_specific_config(self):
+        """初始化配置管理器特定配置"""
+        # 配置相关设置
+        self.auto_reload = self._get_config("auto_reload", True)
+        self.config_validation = self._get_config("config_validation", True)
+        self.backup_config = self._get_config("backup_config", True)
+        self.environment_override = self._get_config("environment_override", True)
 
     def _init_components(self):
         """初始化配置组件"""

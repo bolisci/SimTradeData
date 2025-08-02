@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class DatabaseManager(BaseManager):
     """SQLite数据库管理器"""
 
-    def __init__(self, db_path: str = None, config=None, **kwargs):
+    def __init__(self, db_path: Optional[str] = None, config=None, **kwargs):
         """
         初始化数据库管理器
 
@@ -38,8 +38,11 @@ class DatabaseManager(BaseManager):
             from ..config import Config
 
             temp_config = config or Config()
-            db_path = temp_config.get("database.path", "data/simtradedata.db")
-            self.db_path = Path(db_path)
+            db_path_str = temp_config.get("database.path", "data/simtradedata.db")
+            if db_path_str:
+                self.db_path = Path(db_path_str)
+            else:
+                self.db_path = Path("data/simtradedata.db")
 
         # 只保留sqlite3.connect()支持的参数
         valid_sqlite_params = {
@@ -76,6 +79,14 @@ class DatabaseManager(BaseManager):
         self._initialize_database()
 
         self.logger.info(f"数据库管理器初始化完成: {self.db_path}")
+
+    def _init_specific_config(self):
+        """初始化数据库管理器特定配置"""
+        # 数据库相关配置
+        self.connection_pool_timeout = self._get_config("connection_pool_timeout", 30)
+        self.max_connections = self._get_config("max_connections", 10)
+        self.enable_wal_mode = self._get_config("enable_wal_mode", True)
+        self.vacuum_frequency = self._get_config("vacuum_frequency", 7)  # 天
 
     def _init_components(self):
         """初始化数据库组件"""

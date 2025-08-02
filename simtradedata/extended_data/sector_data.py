@@ -19,7 +19,12 @@ logger = logging.getLogger(__name__)
 class SectorDataManager(BaseManager):
     """板块数据管理器"""
 
-    def __init__(self, db_manager: DatabaseManager = None, config=None, **dependencies):
+    # 类型注解属性（由BaseManager动态注入）
+    db_manager: DatabaseManager
+
+    def __init__(
+        self, db_manager: Optional[DatabaseManager] = None, config=None, **dependencies
+    ):
         """
         初始化板块数据管理器
 
@@ -29,9 +34,9 @@ class SectorDataManager(BaseManager):
             **dependencies: 其他依赖对象
         """
         # 获取数据库管理器 - 在super().__init__前设置
-        self.db_manager = db_manager
-        if not self.db_manager:
+        if not db_manager:
             raise ValueError("数据库管理器不能为空")
+        self.db_manager = db_manager
 
         # 调用BaseManager初始化
         super().__init__(config=config, db_manager=db_manager, **dependencies)
@@ -63,6 +68,16 @@ class SectorDataManager(BaseManager):
             "style": "风格指数",
             "strategy": "策略指数",
         }
+
+    def _init_specific_config(self):
+        """初始化板块数据管理器特定配置"""
+        # 板块数据相关配置
+        self.enable_realtime_update = self._get_config("enable_realtime_update", False)
+        self.sector_cache_duration = self._get_config(
+            "sector_cache_duration", 86400
+        )  # 24小时
+        self.auto_classify = self._get_config("auto_classify", True)
+        self.industry_hierarchy_depth = self._get_config("industry_hierarchy_depth", 3)
 
     def _init_components(self):
         """初始化板块数据组件"""
@@ -163,7 +178,7 @@ class SectorDataManager(BaseManager):
         self,
         sector_code: str,
         constituents: List[Dict[str, Any]],
-        effective_date: date = None,
+        effective_date: Optional[date] = None,
     ) -> bool:
         """
         保存板块成分股
@@ -308,7 +323,7 @@ class SectorDataManager(BaseManager):
             return None
 
     def get_sector_constituents(
-        self, sector_code: str, effective_date: date = None
+        self, sector_code: str, effective_date: Optional[date] = None
     ) -> List[Dict[str, Any]]:
         """
         获取板块成分股
@@ -378,7 +393,9 @@ class SectorDataManager(BaseManager):
             logger.error(f"获取股票所属板块失败: {e}")
             return []
 
-    def get_sector_list(self, sector_type: str = None) -> List[Dict[str, Any]]:
+    def get_sector_list(
+        self, sector_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
         获取板块列表
 
@@ -407,7 +424,7 @@ class SectorDataManager(BaseManager):
             ORDER BY sector_type, sector_name
             """
 
-            results = self.db_manager.fetchall(sql, params)
+            results = self.db_manager.fetchall(sql, tuple(params))
 
             return [dict(row) for row in results]
 

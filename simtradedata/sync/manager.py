@@ -7,7 +7,7 @@
 # 标准库导入
 import logging
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # 项目内导入
 from ..config import Config
@@ -32,12 +32,17 @@ logger = logging.getLogger(__name__)
 class SyncManager(BaseManager):
     """同步管理器"""
 
+    # 类型注解属性（由BaseManager动态注入）
+    db_manager: DatabaseManager
+    data_source_manager: DataSourceManager
+    processing_engine: DataProcessingEngine
+
     def __init__(
         self,
         db_manager: DatabaseManager,
         data_source_manager: DataSourceManager,
         processing_engine: DataProcessingEngine,
-        config: Config = None,
+        config: Optional[Config] = None,
         **kwargs,
     ):
         """
@@ -59,11 +64,10 @@ class SyncManager(BaseManager):
 
     def _init_specific_config(self):
         """初始化同步管理器特定配置"""
-        self.enable_auto_gap_fix = self._get_config("sync_manager.auto_gap_fix", True)
-        self.enable_validation = self._get_config(
-            "sync_manager.enable_validation", True
-        )
-        self.max_gap_fix_days = self._get_config("sync_manager.max_gap_fix_days", 7)
+        # 初始化同步管理器特定配置
+        self.enable_auto_gap_fix = self._get_config("auto_gap_fix", True)
+        self.enable_validation = self._get_config("enable_validation", True)
+        self.max_gap_fix_days = self._get_config("max_gap_fix_days", 7)
 
     def _init_components(self):
         """初始化子组件"""
@@ -91,9 +95,9 @@ class SyncManager(BaseManager):
     @unified_error_handler(return_dict=True)
     def run_full_sync(
         self,
-        target_date: date = None,
-        symbols: List[str] = None,
-        frequencies: List[str] = None,
+        target_date: Optional[date] = None,
+        symbols: Optional[List[str]] = None,
+        frequencies: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         运行完整同步流程
@@ -106,6 +110,14 @@ class SyncManager(BaseManager):
         Returns:
             Dict[str, Any]: 完整同步结果
         """
+        # 如果没有指定频率，使用默认频率
+        if frequencies is None:
+            frequencies = ["1d"]
+
+        # 如果没有指定symbols，使用默认值
+        if symbols is None:
+            symbols = []
+
         if not target_date:
             raise ValidationError("目标日期不能为空")
 
@@ -144,7 +156,9 @@ class SyncManager(BaseManager):
                     calendar_result = self._update_trading_calendar(target_date)
                     full_result["phases"]["calendar_update"] = calendar_result
                     full_result["summary"]["total_phases"] += 1
-                    pbar.update(1)
+                    # 更新进度条
+                    if pbar is not None:
+                        pbar.update(1)
 
                     if "error" not in calendar_result:
                         full_result["summary"]["successful_phases"] += 1
@@ -168,7 +182,9 @@ class SyncManager(BaseManager):
                     stock_list_result = self._update_stock_list()
                     full_result["phases"]["stock_list_update"] = stock_list_result
                     full_result["summary"]["total_phases"] += 1
-                    pbar.update(1)
+                    # 更新进度条
+                    if pbar is not None:
+                        pbar.update(1)
 
                     if "error" not in stock_list_result:
                         full_result["summary"]["successful_phases"] += 1
@@ -308,7 +324,9 @@ class SyncManager(BaseManager):
                     )
 
                     # 更新进度
-                    pbar.update(len(symbols))
+                    # 更新进度
+                    if pbar is not None:
+                        pbar.update(len(symbols))
 
                     full_result["phases"]["gap_detection"] = {
                         "status": "completed",
@@ -359,7 +377,8 @@ class SyncManager(BaseManager):
                         )
 
                         # 更新进度
-                        pbar.update(len(symbols))
+                        if pbar is not None:
+                            pbar.update(len(symbols))
 
                         full_result["phases"]["validation"] = {
                             "status": "completed",
@@ -541,7 +560,7 @@ class SyncManager(BaseManager):
                 AND created_at > datetime('now', '-30 days')
             """
             financial_results = self.db_manager.fetchall(
-                financial_query, symbols + [report_date]
+                financial_query, tuple(symbols) + (report_date,)
             )
             financial_symbols = set(row["symbol"] for row in financial_results)
 
@@ -550,7 +569,9 @@ class SyncManager(BaseManager):
                 SELECT DISTINCT symbol FROM valuations 
                 WHERE symbol IN ({placeholders})
             """
-            valuation_results = self.db_manager.fetchall(valuation_query, symbols)
+            valuation_results = self.db_manager.fetchall(
+                valuation_query, tuple(symbols)
+            )
             valuation_symbols = set(row["symbol"] for row in valuation_results)
 
             # 3. 检查技术指标（检查是否有任何技术指标数据）
@@ -558,7 +579,9 @@ class SyncManager(BaseManager):
                 SELECT DISTINCT symbol FROM technical_indicators 
                 WHERE symbol IN ({placeholders})
             """
-            indicator_results = self.db_manager.fetchall(indicator_query, symbols)
+            indicator_results = self.db_manager.fetchall(
+                indicator_query, tuple(symbols)
+            )
             indicator_symbols = set(row["symbol"] for row in indicator_results)
 
             # 统计完整性
@@ -870,7 +893,7 @@ class SyncManager(BaseManager):
 
         # 处理缺口数据结构 - 适配新的数据格式
         all_gaps = []
-        for freq, freq_data in gap_result.get("gaps_by_frequency", {}).items():
+        for freq_data in gap_result.get("gaps_by_frequency", {}).values():
             all_gaps.extend(freq_data.get("gaps", []))
 
         if not all_gaps:

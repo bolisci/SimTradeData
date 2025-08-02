@@ -10,14 +10,9 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
-# 第三方库导入（可选）
-try:
-    import numpy as np
-    import pandas as pd
-except ImportError:
-    # 如果没有安装numpy和pandas，使用简化版本
-    np = None
-    pd = None
+# 第三方库导入
+import numpy as np
+import pandas as pd
 
 # 项目内导入
 from ..core.base_manager import BaseManager
@@ -29,7 +24,12 @@ logger = logging.getLogger(__name__)
 class TechnicalIndicatorManager(BaseManager):
     """技术指标管理器"""
 
-    def __init__(self, db_manager: DatabaseManager = None, config=None, **dependencies):
+    # 类型注解属性（由BaseManager动态注入）
+    db_manager: DatabaseManager
+
+    def __init__(
+        self, db_manager: Optional[DatabaseManager] = None, config=None, **dependencies
+    ):
         """
         初始化技术指标管理器
 
@@ -39,9 +39,9 @@ class TechnicalIndicatorManager(BaseManager):
             **dependencies: 其他依赖对象
         """
         # 获取数据库管理器 - 在super().__init__前设置
-        self.db_manager = db_manager
-        if not self.db_manager:
+        if not db_manager:
             raise ValueError("数据库管理器不能为空")
+        self.db_manager = db_manager
 
         # 内置技术指标 - 在super().__init__前设置
         self.builtin_indicators = {
@@ -69,6 +69,16 @@ class TechnicalIndicatorManager(BaseManager):
 
         self.logger.info("技术指标管理器初始化完成")
 
+    def _init_specific_config(self):
+        """初始化技术指标管理器特定配置"""
+        # 技术指标相关配置
+        self.calculation_window = self._get_config("calculation_window", 200)
+        self.enable_advanced_indicators = self._get_config(
+            "enable_advanced_indicators", True
+        )
+        self.parallel_calculation = self._get_config("parallel_calculation", True)
+        self.cache_indicators = self._get_config("cache_indicators", True)
+
     def _init_components(self):
         """初始化技术指标组件"""
         pass  # 组件初始化在__init__中完成
@@ -81,9 +91,9 @@ class TechnicalIndicatorManager(BaseManager):
         self,
         symbol: str,
         indicator_name: str,
-        params: Dict[str, Any] = None,
-        start_date: date = None,
-        end_date: date = None,
+        params: Optional[Dict[str, Any]] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> List[Dict[str, Any]]:
         """
         计算技术指标
@@ -119,7 +129,7 @@ class TechnicalIndicatorManager(BaseManager):
             # 获取价格数据
             price_data = self._get_price_data(symbol, start_date, end_date)
 
-            if not price_data:
+            if price_data.empty:
                 logger.warning(f"无法获取价格数据: {symbol}")
                 return []
 
@@ -135,7 +145,7 @@ class TechnicalIndicatorManager(BaseManager):
                 return []
 
             # 缓存结果
-            if self.cache_enabled and result:
+            if self.cache_enabled and len(result) > 0:
                 self._cache_indicator(
                     symbol, indicator_name, params, start_date, end_date, result
                 )
@@ -153,8 +163,8 @@ class TechnicalIndicatorManager(BaseManager):
         self,
         symbols: List[str],
         indicator_configs: List[Dict[str, Any]],
-        start_date: date = None,
-        end_date: date = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> Dict[str, Dict[str, List[Dict[str, Any]]]]:
         """
         批量计算技术指标
@@ -351,7 +361,7 @@ class TechnicalIndicatorManager(BaseManager):
 
         result = []
         for date, value in rsi.items():
-            if not pd.isna(value):
+            if not pd.isna(value):  # type: ignore
                 result.append(
                     {
                         "trade_date": date.strftime("%Y-%m-%d"),
@@ -487,15 +497,15 @@ class TechnicalIndicatorManager(BaseManager):
             return []
 
         high_low = data["high"] - data["low"]
-        high_close_prev = np.abs(data["high"] - data["close"].shift(1))
-        low_close_prev = np.abs(data["low"] - data["close"].shift(1))
+        high_close_prev = np.abs(data["high"] - data["close"].shift(1))  # type: ignore
+        low_close_prev = np.abs(data["low"] - data["close"].shift(1))  # type: ignore
 
-        true_range = np.maximum(high_low, np.maximum(high_close_prev, low_close_prev))
+        true_range = np.maximum(high_low, np.maximum(high_close_prev, low_close_prev))  # type: ignore
         atr = true_range.rolling(window=period).mean()
 
         result = []
         for date, value in atr.items():
-            if not pd.isna(value):
+            if not pd.isna(value):  # type: ignore
                 result.append(
                     {
                         "trade_date": date.strftime("%Y-%m-%d"),
@@ -517,16 +527,16 @@ class TechnicalIndicatorManager(BaseManager):
 
         price_change = data["close"].diff()
         volume_direction = np.where(
-            price_change > 0,
+            price_change > 0,  # type: ignore
             data["volume"],
-            np.where(price_change < 0, -data["volume"], 0),
+            np.where(price_change < 0, -data["volume"], 0),  # type: ignore
         )
 
         obv = volume_direction.cumsum()
 
         result = []
         for date, value in obv.items():
-            if not pd.isna(value):
+            if not pd.isna(value):  # type: ignore
                 result.append(
                     {
                         "trade_date": date.strftime("%Y-%m-%d"),
@@ -550,15 +560,15 @@ class TechnicalIndicatorManager(BaseManager):
 
         typical_price = (data["high"] + data["low"] + data["close"]) / 3
         sma = typical_price.rolling(window=period).mean()
-        mean_deviation = typical_price.rolling(window=period).apply(
-            lambda x: np.mean(np.abs(x - x.mean()))
+        mean_deviation = typical_price.rolling(window=period).apply(  # type: ignore
+            lambda x: np.mean(np.abs(x - x.mean()))  # type: ignore
         )
 
         cci = (typical_price - sma) / (0.015 * mean_deviation)
 
         result = []
         for date, value in cci.items():
-            if not pd.isna(value):
+            if not pd.isna(value):  # type: ignore
                 result.append(
                     {
                         "trade_date": date.strftime("%Y-%m-%d"),
@@ -587,7 +597,7 @@ class TechnicalIndicatorManager(BaseManager):
 
         result = []
         for date, value in williams_r.items():
-            if not pd.isna(value):
+            if not pd.isna(value):  # type: ignore
                 result.append(
                     {
                         "trade_date": date.strftime("%Y-%m-%d"),
@@ -679,7 +689,9 @@ class TechnicalIndicatorManager(BaseManager):
         key_data = f"{symbol}_{indicator_name}_{json.dumps(params, sort_keys=True)}_{start_date}_{end_date}"
         return hashlib.md5(key_data.encode()).hexdigest()
 
-    def clear_cache(self, symbol: str = None, indicator_name: str = None):
+    def clear_cache(
+        self, symbol: Optional[str] = None, indicator_name: Optional[str] = None
+    ):
         """清空指标缓存"""
         try:
             conditions = []
@@ -698,7 +710,7 @@ class TechnicalIndicatorManager(BaseManager):
                 where_clause = "WHERE " + " AND ".join(conditions)
 
             sql = f"DELETE FROM ptrade_indicator_cache {where_clause}"
-            self.db_manager.execute(sql, params)
+            self.db_manager.execute(sql, tuple(params))
 
             logger.info(
                 f"指标缓存清空完成: symbol={symbol}, indicator={indicator_name}"

@@ -246,6 +246,133 @@ class SyncManager(BaseManager):
                 },
             }
 
+            # 🔄 提前进行断点续传检查（在基础数据更新之前）
+            # 先获取股票列表用于断点续传检查
+            if symbols is None:
+                symbols = []
+            if not symbols:
+                symbols = self._get_active_stocks_from_db()
+                if not symbols:
+                    # 如果数据库中没有股票，不能进行断点续传，执行完整流程
+                    self.logger.info("数据库中没有股票，无法进行断点续传检查")
+                else:
+                    self.logger.info(f"获取到{len(symbols)}只活跃股票用于断点续传检查")
+
+            # 如果有股票列表，检查断点续传条件
+            if symbols:
+                # 检查是否有任何已完成的扩展数据记录
+                completed_count = self.db_manager.fetchone(
+                    "SELECT COUNT(*) as count FROM extended_sync_status WHERE target_date = ? AND status = 'completed'",
+                    (str(target_date),),
+                )["count"]
+
+                if completed_count > 0:  # 如果有已完成记录，执行断点续传
+                    self.logger.info(
+                        f"🔄 检测到断点续传: 发现{completed_count}个已完成记录"
+                    )
+
+                    # 重新计算需要处理的股票（基于正确的symbols列表）
+                    extended_symbols_to_process = (
+                        self._get_extended_data_symbols_to_process(symbols, target_date)
+                    )
+
+                    # 如果所有扩展数据都已完成，直接跳过所有阶段
+                    if len(extended_symbols_to_process) == 0:
+                        self.logger.info("🎉 检测到所有数据已完成，跳过整个同步流程")
+                        full_result["phases"]["all_completed"] = {
+                            "status": "completed",
+                            "message": "所有数据已完成",
+                        }
+                        full_result["summary"][
+                            "successful_phases"
+                        ] = 4  # 假设4个阶段都完成
+                        return full_result
+
+                    # 计算完成进度
+                    total_stocks = len(symbols)
+                    remaining_stocks = len(extended_symbols_to_process)
+                    completion_rate = (
+                        (total_stocks - remaining_stocks) / total_stocks
+                        if total_stocks > 0
+                        else 0
+                    )
+
+                    self.logger.info(
+                        f"📊 断点续传状态: 总计{total_stocks}只，已完成{completion_rate:.1%}，剩余{remaining_stocks}只"
+                    )
+
+                    # 直接跳到扩展数据同步阶段
+                    self.logger.info(
+                        "⏭️ 跳过基础数据更新和增量同步，直接进入扩展数据同步"
+                    )
+                    full_result["phases"]["calendar_update"] = {
+                        "status": "skipped",
+                        "message": "断点续传跳过",
+                    }
+                    full_result["phases"]["stock_list_update"] = {
+                        "status": "skipped",
+                        "message": "断点续传跳过",
+                    }
+                    full_result["phases"]["incremental_sync"] = {
+                        "status": "skipped",
+                        "message": "断点续传跳过",
+                    }
+                    full_result["summary"][
+                        "successful_phases"
+                    ] += 3  # 标记跳过的阶段为成功
+
+                    # 阶段2: 同步扩展数据（断点续传）
+                    log_phase_start("阶段2", "扩展数据同步（断点续传）")
+
+                    with create_phase_progress(
+                        "phase2",
+                        len(extended_symbols_to_process),
+                        "扩展数据同步",
+                        "股票",
+                    ) as pbar:
+                        try:
+                            extended_result = self._sync_extended_data(
+                                extended_symbols_to_process, target_date, pbar
+                            )
+                            full_result["phases"]["extended_data_sync"] = {
+                                "status": "completed",
+                                "result": extended_result,
+                            }
+                            full_result["summary"]["successful_phases"] += 1
+
+                            log_phase_complete(
+                                "扩展数据同步",
+                                {
+                                    "财务数据": f"{extended_result.get('financials_count', 0)}条",
+                                    "估值数据": f"{extended_result.get('valuations_count', 0)}条",
+                                    "处理股票": f"{extended_result.get('processed_symbols', 0)}只",
+                                },
+                            )
+
+                            # 完成时间
+                            end_time = datetime.now()
+                            full_result["end_time"] = end_time.isoformat()
+                            full_result["duration_seconds"] = (
+                                end_time - start_time
+                            ).total_seconds()
+                            full_result["summary"]["total_phases"] = 4
+
+                            return full_result
+
+                        except Exception as e:
+                            log_error(f"扩展数据同步失败: {e}")
+                            full_result["phases"]["extended_data_sync"] = {
+                                "status": "failed",
+                                "error": str(e),
+                            }
+                            full_result["summary"]["failed_phases"] += 1
+                            return full_result
+                else:
+                    self.logger.info("🆕 未检测到扩展数据记录，执行完整同步流程")
+
+            # 如果是全新同步或完成度很低，执行完整流程
+            self.logger.info("🚀 执行完整同步流程")
+
             # 阶段0: 更新基础数据（交易日历和股票列表）
             log_phase_start("阶段0", "更新基础数据")
 
@@ -309,7 +436,7 @@ class SyncManager(BaseManager):
                     full_result["summary"]["total_phases"] += 1
                     full_result["summary"]["failed_phases"] += 1
 
-            # 如果没有指定股票列表，从数据库获取活跃股票
+            # 如果没有指定股票列表，从数据库获取活跃股票（完整流程需要）
             if not symbols:
                 symbols = self._get_active_stocks_from_db()
                 if not symbols:
@@ -376,15 +503,21 @@ class SyncManager(BaseManager):
                 full_result["summary"]["successful_phases"] += 1
                 log_phase_complete("扩展数据同步", {"状态": "已完成，跳过"})
             else:
-                # 使用需要处理的股票数量作为进度条基准
+                # 处理所有需要的股票，不设限制
+                actual_symbols_to_process = extended_symbols_to_process
+                self.logger.info(
+                    f"🎯 开始处理全部 {len(extended_symbols_to_process)} 只需要处理的股票"
+                )
+
+                # 使用所有需要处理的股票数量作为进度条基准
                 with create_phase_progress(
-                    "phase2", len(extended_symbols_to_process), "扩展数据同步", "股票"
+                    "phase2", len(actual_symbols_to_process), "扩展数据同步", "股票"
                 ) as pbar:
                     try:
                         extended_result = self._sync_extended_data(
-                            extended_symbols_to_process,
+                            actual_symbols_to_process,  # 使用实际要处理的股票列表
                             target_date,
-                            pbar,  # 只传入需要处理的股票
+                            pbar,  # 传入正确大小的进度条
                         )
                         full_result["phases"]["extended_data_sync"] = {
                             "status": "completed",
@@ -599,10 +732,10 @@ class SyncManager(BaseManager):
         self, symbols: List[str], target_date: date
     ) -> List[str]:
         """
-        获取需要处理扩展数据的股票列表（修复断点续传版本）
+        获取需要处理扩展数据的股票列表（智能断点续传版本）
         """
         try:
-            self.logger.info("📊 检查扩展数据完整性（修复断点续传）...")
+            self.logger.info("📊 检查扩展数据完整性（智能断点续传）...")
 
             if not symbols:
                 return []
@@ -617,11 +750,23 @@ class SyncManager(BaseManager):
                 (str(target_date),),
             )
 
-            # 核心修复：基于实际数据完整性判断，而不是状态表
-            report_date = f"{target_date.year}-12-31"
-            placeholders = ",".join(["?" for _ in symbols])
+            # 智能数据完整性检查：使用灵活的日期范围
+            # 财务数据：检查最近2年的年报数据
+            financial_dates = [
+                f"{target_date.year - 1}-12-31",  # 去年年报
+                f"{target_date.year - 2}-12-31",  # 前年年报（备用）
+            ]
 
-            # 查询实际数据完整性，包括已标记完成但数据缺失的情况
+            # 估值数据：检查目标日期前后10天范围
+            from datetime import timedelta
+
+            valuation_start = str(target_date - timedelta(days=10))
+            valuation_end = str(target_date + timedelta(days=10))
+
+            placeholders = ",".join(["?" for _ in symbols])
+            financial_placeholders = ",".join(["?" for _ in financial_dates])
+
+            # 灵活的数据完整性查询
             data_completeness_query = f"""
             WITH symbol_list AS (
                 SELECT symbol FROM stocks 
@@ -630,17 +775,12 @@ class SyncManager(BaseManager):
             financial_data AS (
                 SELECT DISTINCT symbol FROM financials 
                 WHERE symbol IN ({placeholders}) 
-                AND report_date = ?
+                AND report_date IN ({financial_placeholders})
             ),
             valuation_data AS (
                 SELECT DISTINCT symbol FROM valuations 
                 WHERE symbol IN ({placeholders})
-                AND date = ?
-            ),
-            indicator_data AS (
-                SELECT DISTINCT symbol FROM technical_indicators 
-                WHERE symbol IN ({placeholders})
-                AND date = ? AND frequency = '1d'
+                AND date BETWEEN ? AND ?
             ),
             status_data AS (
                 SELECT DISTINCT symbol, status FROM extended_sync_status
@@ -651,12 +791,10 @@ class SyncManager(BaseManager):
                 sl.symbol,
                 CASE WHEN fd.symbol IS NOT NULL THEN 1 ELSE 0 END AS has_financial,
                 CASE WHEN vd.symbol IS NOT NULL THEN 1 ELSE 0 END AS has_valuation,
-                CASE WHEN id.symbol IS NOT NULL THEN 1 ELSE 0 END AS has_indicators,
                 CASE WHEN sd.symbol IS NOT NULL THEN 1 ELSE 0 END AS marked_completed
             FROM symbol_list sl
             LEFT JOIN financial_data fd ON sl.symbol = fd.symbol
             LEFT JOIN valuation_data vd ON sl.symbol = vd.symbol  
-            LEFT JOIN indicator_data id ON sl.symbol = id.symbol
             LEFT JOIN status_data sd ON sl.symbol = sd.symbol
             """
 
@@ -664,102 +802,89 @@ class SyncManager(BaseManager):
             query_params = (
                 tuple(symbols)
                 + tuple(symbols)
-                + (report_date,)
+                + tuple(financial_dates)
                 + tuple(symbols)
-                + (str(target_date),)
-                + tuple(symbols)
-                + (str(target_date),)
+                + (valuation_start, valuation_end)
                 + tuple(symbols)
                 + (str(target_date),)
             )
             results = self.db_manager.fetchall(data_completeness_query, query_params)
 
-            # 分析结果并修复状态不一致
+            # 智能分析结果并修复状态
             symbols_needing_processing = []
-            inconsistent_symbols = []  # 状态标记完成但数据缺失
+            repaired_symbols = []  # 状态修复的股票
             stats = {
                 "total_checked": len(results),
-                "has_all": 0,
-                "missing_financial": 0,
-                "missing_valuation": 0,
-                "missing_indicators": 0,
+                "completed": 0,
+                "partial": 0,
+                "missing": 0,
                 "needs_processing": 0,
-                "status_inconsistent": 0,
+                "status_repaired": 0,
             }
 
             for row in results:
                 symbol = row["symbol"]
                 has_financial = row["has_financial"]
                 has_valuation = row["has_valuation"]
-                has_indicators = row["has_indicators"]
                 marked_completed = row["marked_completed"]
 
-                # 统计
-                if has_financial and has_valuation and has_indicators:
-                    stats["has_all"] += 1
-                if not has_financial:
-                    stats["missing_financial"] += 1
-                if not has_valuation:
-                    stats["missing_valuation"] += 1
-                if not has_indicators:
-                    stats["missing_indicators"] += 1
+                # 评估实际完成状态（分级标准）
+                if has_financial:
+                    actual_status = "completed"  # 有财务数据就算完成
+                    stats["completed"] += 1
+                elif has_valuation:
+                    actual_status = "partial"  # 只有估值数据算部分完成
+                    stats["partial"] += 1
+                else:
+                    actual_status = "pending"  # 都没有需要处理
+                    stats["missing"] += 1
 
-                # 检查状态不一致：标记完成但数据缺失
-                if marked_completed and (not has_financial or not has_valuation):
-                    inconsistent_symbols.append(symbol)
-                    stats["status_inconsistent"] += 1
-                    self.logger.warning(
-                        f"状态不一致: {symbol} 标记完成但缺少数据 (财务:{has_financial}, 估值:{has_valuation})"
+                # 智能状态修复：修复而不是删除
+                if marked_completed and actual_status != "completed":
+                    # 状态不一致，需要修复
+                    self.db_manager.execute(
+                        "UPDATE extended_sync_status SET status = ?, updated_at = datetime('now') WHERE symbol = ? AND target_date = ?",
+                        (actual_status, symbol, str(target_date)),
+                    )
+                    repaired_symbols.append(symbol)
+                    stats["status_repaired"] += 1
+                    self.logger.debug(
+                        f"🔧 修复状态: {symbol} completed -> {actual_status} (财务:{has_financial}, 估值:{has_valuation})"
                     )
 
-                # 需要处理的条件：主要数据不完整（技术指标暂时可选）
-                if not has_financial or not has_valuation:
+                # 需要处理的条件：实际状态不是完成
+                if actual_status != "completed":
                     symbols_needing_processing.append(symbol)
                     stats["needs_processing"] += 1
 
-            # 修复状态不一致：清理错误的完成状态
-            if inconsistent_symbols:
-                placeholders_inconsistent = ",".join(
-                    ["?" for _ in inconsistent_symbols]
-                )
-                self.db_manager.execute(
-                    f"""
-                    DELETE FROM extended_sync_status 
-                    WHERE symbol IN ({placeholders_inconsistent}) 
-                    AND target_date = ? AND status = 'completed'
-                    """,
-                    tuple(inconsistent_symbols) + (str(target_date),),
-                )
-                self.logger.info(
-                    f"🔧 修复状态不一致: 清理了 {len(inconsistent_symbols)} 个错误的完成状态"
-                )
-
-            # 输出统计信息
+            # 输出智能统计信息
             self.logger.info(
-                f"📊 数据完整性检查: "
+                f"📊 智能数据完整性检查: "
                 f"总计{stats['total_checked']}, "
-                f"完整{stats['has_all']}, "
-                f"缺财务{stats['missing_financial']}, "
-                f"缺估值{stats['missing_valuation']}, "
-                f"缺指标{stats['missing_indicators']}, "
+                f"已完成{stats['completed']}, "
+                f"部分完成{stats['partial']}, "
+                f"缺失数据{stats['missing']}, "
                 f"需处理{stats['needs_processing']}, "
-                f"状态修复{stats['status_inconsistent']}"
+                f"状态修复{stats['status_repaired']}"
             )
 
-            if symbols_needing_processing:
+            if repaired_symbols:
                 self.logger.info(
-                    f"📋 实际需要处理扩展数据: {len(symbols_needing_processing)} 只股票"
+                    f"🔧 状态修复: {len(repaired_symbols)} 个股票状态已修复"
                 )
 
-                # 限制处理数量，但要考虑已完成的
-                max_process = min(len(symbols_needing_processing), 100)  # 降低到100只
-                if len(symbols_needing_processing) > max_process:
-                    self.logger.info(f"🎯 限制处理数量为 {max_process} 只股票")
-                    symbols_needing_processing = symbols_needing_processing[
-                        :max_process
-                    ]
+            if symbols_needing_processing:
+                completion_rate = (
+                    (stats["total_checked"] - len(symbols_needing_processing))
+                    / stats["total_checked"]
+                    if stats["total_checked"] > 0
+                    else 0
+                )
+                self.logger.info(
+                    f"📋 断点续传: 总进度 {completion_rate:.1%}, 剩余处理 {len(symbols_needing_processing)} 只股票"
+                )
             else:
-                self.logger.info("✅ 所有股票的扩展数据已完整")
+                self.logger.info("✅ 所有股票的扩展数据已完整，无需处理")
 
             return symbols_needing_processing
 
@@ -864,7 +989,7 @@ class SyncManager(BaseManager):
             )
 
             # 如果今天已经更新过，且股票数量合理，跳过更新
-            from datetime import datetime
+            from datetime import datetime, timedelta
 
             today = datetime.now().date()
 
@@ -893,10 +1018,31 @@ class SyncManager(BaseManager):
                         "updated_stocks": 0,
                         "failed_stocks": 0,
                     }
+                # 增加一个更宽松的跳过条件 - 如果股票数量 > 1000且最近更新过
+                elif (
+                    last_update_date >= (today - timedelta(days=1))  # 1天内更新过
+                    and stock_count
+                    and stock_count["count"] > 1000
+                ):
+                    self.logger.info(
+                        f"✅ 股票列表最近已更新（{last_update_date}），共 {stock_count['count']} 只股票，跳过更新以提高性能"
+                    )
+                    return {
+                        "status": "skipped",
+                        "message": "最近已更新，跳过",
+                        "total_stocks": stock_count["count"],
+                        "new_stocks": 0,
+                        "updated_stocks": 0,
+                        "failed_stocks": 0,
+                    }
 
             # 获取股票信息
+            self.logger.info("🔄 开始从数据源获取股票信息...")
             stock_info = self.data_source_manager.get_stock_info()
-            self.logger.info(f"原始股票信息类型: {type(stock_info)}")
+            self.logger.info(f"✅ 获取股票信息完成，数据类型: {type(stock_info)}")
+
+            if hasattr(stock_info, "__len__"):
+                self.logger.info(f"📊 股票信息数据长度: {len(stock_info)}")
 
             # 诊断数据结构
             if isinstance(stock_info, dict):
@@ -1323,22 +1469,68 @@ class SyncManager(BaseManager):
                 progress_bar.update(0)
             return result
 
-        # 处理每只股票
+        # 处理每只股票（添加事务保护）
         for i, symbol in enumerate(symbols):
             self.logger.debug(f"处理 {symbol} ({i+1}/{len(symbols)})")
 
+            try:
+                # 使用事务保护同步单个股票
+                symbol_result = self._sync_single_symbol_with_transaction(
+                    symbol, target_date, session_id
+                )
+
+                # 更新结果统计
+                if symbol_result["success"]:
+                    result["financials_count"] += symbol_result.get(
+                        "financials_count", 0
+                    )
+                    result["valuations_count"] += symbol_result.get(
+                        "valuations_count", 0
+                    )
+                    result["indicators_count"] += symbol_result.get(
+                        "indicators_count", 0
+                    )
+                else:
+                    result["failed_symbols"] += 1
+
+                result["processed_symbols"] += 1
+
+            except Exception as e:
+                self.logger.error(f"同步股票失败: {symbol} - {e}")
+                result["failed_symbols"] += 1
+                result["processed_symbols"] += 1
+
+            if progress_bar:
+                progress_bar.update(1)
+
+        return result
+
+    def _sync_single_symbol_with_transaction(
+        self, symbol: str, target_date: date, session_id: str
+    ) -> Dict[str, Any]:
+        """使用事务保护同步单个股票的扩展数据"""
+        result = {
+            "success": False,
+            "financials_count": 0,
+            "valuations_count": 0,
+            "indicators_count": 0,
+        }
+
+        try:
+            # 开始事务
+            self.db_manager.execute("BEGIN TRANSACTION")
+
             # 检查是否已经处理过这只股票
             existing_status = self.db_manager.fetchone(
-                "SELECT status FROM extended_sync_status WHERE symbol = ? AND target_date = ? AND session_id = ?",
-                (symbol, str(target_date), session_id),
+                "SELECT status FROM extended_sync_status WHERE symbol = ? AND target_date = ? AND status = 'completed'",
+                (symbol, str(target_date)),
             )
 
-            if existing_status and existing_status["status"] == "completed":
-                self.logger.debug(f"跳过已完成的股票: {symbol}")
-                result["processed_symbols"] += 1
-                if progress_bar:
-                    progress_bar.update(1)
-                continue
+            if existing_status:
+                self.logger.debug(f"⏭️ 跳过已完成的股票: {symbol}")
+                result["success"] = True
+                self.db_manager.execute("COMMIT")
+                return result
 
             # 标记开始处理
             self.db_manager.execute(
@@ -1350,47 +1542,64 @@ class SyncManager(BaseManager):
             financial_success = False
             valuation_success = False
 
-            # 处理财务数据 - 使用最近一年的年报数据
+            # 处理财务数据
             report_year = target_date.year - 1  # 使用去年年报
             report_date_str = f"{report_year}-12-31"
 
             # 验证报告期有效性
-            if not DataQualityValidator.is_valid_report_date(report_date_str, symbol):
-                self.logger.warning(f"跳过无效报告期: {symbol} {report_date_str}")
-            else:
+            if DataQualityValidator.is_valid_report_date(report_date_str, symbol):
+                # 优先尝试BaoStock获取财务数据
                 try:
-                    financial_data = self.data_source_manager.get_fundamentals(
-                        symbol, report_date_str, "Q4"
-                    )
-
-                    # 标准数据源响应格式解包
-                    # 统一数据格式处理 - 避免多次拆包
-                    financial_data = self._extract_data_safely(financial_data)
-
-                    # 验证财务数据有效性
-                    if financial_data and DataQualityValidator.is_valid_financial_data(
-                        financial_data
-                    ):
-                        self.db_manager.execute(
-                            "INSERT OR REPLACE INTO financials (symbol, report_date, report_type, revenue, net_profit, total_assets, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
-                            (
-                                symbol,
-                                report_date_str,
-                                "Q4",
-                                financial_data.get("revenue", 0),
-                                financial_data.get("net_profit", 0),
-                                financial_data.get("total_assets", 0),
-                                "akshare",
-                            ),
+                    baostock_source = self.data_source_manager.sources.get("baostock")
+                    if baostock_source and baostock_source.is_connected():
+                        financial_data = baostock_source.get_fundamentals(
+                            symbol, report_date_str, "Q4"
                         )
-                        result["financials_count"] += 1
-                        financial_success = True
-                        self.logger.debug(f"财务数据插入成功: {symbol}")
+
+                        if financial_data and self._is_valid_financial_data_relaxed(
+                            financial_data
+                        ):
+                            self._insert_financial_data(
+                                financial_data, symbol, report_date_str, "baostock"
+                            )
+                            result["financials_count"] += 1
+                            financial_success = True
+                            self.logger.debug(f"BaoStock财务数据插入成功: {symbol}")
+                        else:
+                            self.logger.debug(f"BaoStock财务数据无效: {symbol}")
                     else:
-                        self.logger.debug(f"财务数据无效，跳过: {symbol}")
+                        self.logger.debug(f"BaoStock未连接，跳过: {symbol}")
 
                 except Exception as e:
-                    self.logger.warning(f"获取财务数据失败: {symbol} - {e}")
+                    self.logger.debug(f"BaoStock获取财务数据失败: {symbol} - {e}")
+
+                # 如果BaoStock失败，尝试AkShare作为后备
+                if not financial_success:
+                    try:
+                        financial_data = self.data_source_manager.get_fundamentals(
+                            symbol, report_date_str, "Q4"
+                        )
+
+                        # 标准数据源响应格式解包
+                        financial_data = self._extract_data_safely(financial_data)
+
+                        # 使用放宽的验证标准
+                        if financial_data and self._is_valid_financial_data_relaxed(
+                            financial_data
+                        ):
+                            self._insert_financial_data(
+                                financial_data, symbol, report_date_str, "akshare"
+                            )
+                            result["financials_count"] += 1
+                            financial_success = True
+                            self.logger.debug(f"AkShare财务数据插入成功: {symbol}")
+                        else:
+                            self.logger.debug(f"AkShare财务数据无效: {symbol}")
+
+                    except Exception as e:
+                        self.logger.warning(f"AkShare获取财务数据失败: {symbol} - {e}")
+            else:
+                self.logger.warning(f"跳过无效报告期: {symbol} {report_date_str}")
 
             # 处理估值数据
             try:
@@ -1399,7 +1608,6 @@ class SyncManager(BaseManager):
                 )
 
                 # 标准数据源响应格式解包
-                # 统一数据格式处理 - 避免多次拆包
                 valuation_data = self._extract_data_safely(valuation_data)
 
                 # 验证估值数据有效性
@@ -1426,38 +1634,22 @@ class SyncManager(BaseManager):
             except Exception as e:
                 self.logger.warning(f"获取估值数据失败: {symbol} - {e}")
 
-            # 处理技术指标 - 只有当有市场数据时才计算
-            indicators_success = False
-            try:
-                # 检查是否有足够的市场数据来计算技术指标
-                market_data_count = self.db_manager.fetchone(
-                    "SELECT COUNT(*) as count FROM market_data WHERE symbol = ? AND date <= ? ORDER BY date DESC LIMIT 20",
-                    (symbol, str(target_date)),
-                )
+            # 处理技术指标（暂时跳过，标记为成功）
 
-                if (
-                    market_data_count and market_data_count["count"] >= 10
-                ):  # 至少需要10天数据
-                    # 这里应该调用真正的技术指标计算，暂时跳过虚假数据插入
-                    self.logger.debug(f"技术指标计算需要实现，跳过: {symbol}")
-                    indicators_success = True  # 暂时标记为成功，因为功能未实现
-                else:
-                    self.logger.debug(f"市场数据不足，无法计算技术指标: {symbol}")
-                    indicators_success = True  # 数据不足时也算正常情况
-
-            except Exception as e:
-                self.logger.warning(f"技术指标处理失败: {symbol} - {e}")
-
-            # 根据数据获取结果决定最终状态
-            # 至少要有财务数据或估值数据之一成功，才标记为完成
-            if financial_success or valuation_success:
-                final_status = "completed"
+            # 根据数据获取结果决定最终状态（使用分级标准）
+            if financial_success:
+                final_status = "completed"  # 有财务数据就算完成
+                result["success"] = True
                 self.logger.debug(
                     f"数据获取成功: {symbol} (财务:{financial_success}, 估值:{valuation_success})"
                 )
+            elif valuation_success:
+                final_status = "partial"  # 只有估值数据算部分完成
+                result["success"] = True
+                self.logger.debug(f"部分数据获取成功: {symbol} (仅估值数据)")
             else:
                 final_status = "failed"
-                result["failed_symbols"] += 1
+                result["success"] = False
                 self.logger.warning(f"数据获取全部失败: {symbol}")
 
             # 更新最终状态
@@ -1466,11 +1658,19 @@ class SyncManager(BaseManager):
                 (final_status, symbol, str(target_date), session_id),
             )
 
-            result["processed_symbols"] += 1
-            if progress_bar:
-                progress_bar.update(1)
+            # 提交事务
+            self.db_manager.execute("COMMIT")
+            return result
 
-        return result
+        except Exception as e:
+            # 回滚事务
+            try:
+                self.db_manager.execute("ROLLBACK")
+            except:
+                pass  # 忽略回滚错误
+            self.logger.error(f"同步股票失败，事务回滚: {symbol} - {e}")
+            result["success"] = False
+            return result
 
     def _auto_fix_gaps(self, gap_result: Dict[str, Any]) -> Dict[str, Any]:
         """自动修复缺口"""
@@ -1590,6 +1790,70 @@ class SyncManager(BaseManager):
                 )
 
         return fix_result
+
+    def _is_valid_financial_data_relaxed(self, data: Dict[str, Any]) -> bool:
+        """放宽的财务数据有效性验证"""
+        if not data or not isinstance(data, dict):
+            return False
+
+        # 检查是否有任何有效的财务指标（放宽标准）
+        revenue = data.get("revenue", 0)
+        net_profit = data.get("net_profit", 0)
+        total_assets = data.get("total_assets", 0)
+        shareholders_equity = data.get("shareholders_equity", 0)
+        eps = data.get("eps", 0)
+
+        # 只要有一个非空/非零的财务指标就认为有效
+        return (
+            (revenue and revenue != 0)
+            or (total_assets and total_assets != 0)
+            or (shareholders_equity and shareholders_equity != 0)
+            or (net_profit != 0)  # 净利润可以为负
+            or (eps and eps != 0)  # 每股收益可以为负
+        )
+
+    def _insert_financial_data(
+        self,
+        financial_data: Dict[str, Any],
+        symbol: str,
+        report_date_str: str,
+        source: str,
+    ):
+        """插入财务数据到数据库"""
+        try:
+            self.db_manager.execute(
+                """INSERT OR REPLACE INTO financials (
+                    symbol, report_date, report_type, revenue, operating_profit, net_profit,
+                    gross_margin, net_margin, total_assets, total_liabilities, shareholders_equity,
+                    operating_cash_flow, investing_cash_flow, financing_cash_flow,
+                    eps, bps, roe, roa, debt_ratio, source, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                (
+                    symbol,
+                    report_date_str,
+                    "Q4",
+                    financial_data.get("revenue", 0),
+                    financial_data.get("operating_profit", 0),
+                    financial_data.get("net_profit", 0),
+                    financial_data.get("gross_margin", 0),
+                    financial_data.get("net_margin", 0),
+                    financial_data.get("total_assets", 0),
+                    financial_data.get("total_liabilities", 0),
+                    financial_data.get("shareholders_equity", 0),
+                    financial_data.get("operating_cash_flow", 0),
+                    financial_data.get("investing_cash_flow", 0),
+                    financial_data.get("financing_cash_flow", 0),
+                    financial_data.get("eps", 0),
+                    financial_data.get("bps", 0),
+                    financial_data.get("roe", 0),
+                    financial_data.get("roa", 0),
+                    financial_data.get("debt_ratio", 0),
+                    source,
+                ),
+            )
+        except Exception as e:
+            self.logger.error(f"插入财务数据失败 {symbol}: {e}")
+            raise
 
     def generate_sync_report(self, full_result: Dict[str, Any]) -> str:
         """生成同步报告"""

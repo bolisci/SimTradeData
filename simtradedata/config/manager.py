@@ -2,6 +2,7 @@
 配置管理器
 
 处理配置文件加载、验证、更新等操作。
+合并了原来的Config和ConfigManager类的功能。
 """
 
 import logging
@@ -17,11 +18,45 @@ from .defaults import get_default_config
 logger = logging.getLogger(__name__)
 
 
-class Config:
-    """配置管理类"""
+class Config(BaseManager):
+    """
+    统一的配置管理类
+
+    集成了配置加载、验证、管理和单例模式功能
+    """
+
+    _instance: Optional["Config"] = None
+
+    def __new__(
+        cls,
+        config_path: Optional[str] = None,
+        config_dict: Optional[Dict] = None,
+        singleton: bool = True,
+        **dependencies,
+    ):
+        """
+        创建配置实例
+
+        Args:
+            config_path: 配置文件路径
+            config_dict: 配置字典 (优先级高于文件)
+            singleton: 是否使用单例模式
+            **dependencies: 依赖对象
+        """
+        if singleton and cls._instance is not None:
+            return cls._instance
+
+        instance = super().__new__(cls)
+        if singleton:
+            cls._instance = instance
+        return instance
 
     def __init__(
-        self, config_path: Optional[str] = None, config_dict: Optional[Dict] = None
+        self,
+        config_path: Optional[str] = None,
+        config_dict: Optional[Dict] = None,
+        singleton: bool = True,
+        **dependencies,
     ):
         """
         初始化配置
@@ -29,9 +64,17 @@ class Config:
         Args:
             config_path: 配置文件路径
             config_dict: 配置字典 (优先级高于文件)
+            singleton: 是否使用单例模式
+            **dependencies: 依赖对象
         """
+        # 避免重复初始化单例
+        if singleton and hasattr(self, "_initialized"):
+            return
+
+        # 初始化配置数据
         self._config = get_default_config()
         self.config_path = config_path
+        self._singleton = singleton
 
         # 加载配置文件
         if config_path and Path(config_path).exists():
@@ -47,7 +90,68 @@ class Config:
         # 验证配置
         self._validate_config()
 
+        # 调用BaseManager初始化
+        super().__init__(config=self, **dependencies)
+
+        if singleton:
+            self._initialized = True
+
         logger.info("配置加载完成")
+
+    def _init_specific_config(self):
+        """初始化配置管理器特定配置"""
+        # 配置相关设置
+        self.auto_reload = self._get_config("auto_reload", True)
+        self.config_validation = self._get_config("config_validation", True)
+        self.backup_config = self._get_config("backup_config", True)
+        self.environment_override = self._get_config("environment_override", True)
+
+    def _init_components(self):
+        """初始化配置组件"""
+        pass  # Config没有需要初始化的组件
+
+    def _get_required_attributes(self) -> list:
+        """获取必需属性列表"""
+        return ["_config"]
+
+    @classmethod
+    def initialize(
+        cls, config_path: Optional[str] = None, config_dict: Optional[Dict] = None
+    ) -> "Config":
+        """
+        初始化配置实例（单例模式）
+
+        Args:
+            config_path: 配置文件路径
+            config_dict: 配置字典
+
+        Returns:
+            Config: 配置实例
+        """
+        return cls(config_path=config_path, config_dict=config_dict, singleton=True)
+
+    @classmethod
+    def get_instance(cls) -> "Config":
+        """获取配置实例"""
+        if cls._instance is None:
+            raise RuntimeError("配置未初始化，请先调用 initialize() 或创建实例")
+        return cls._instance
+
+    @classmethod
+    def create_instance(
+        cls, config_path: Optional[str] = None, config_dict: Optional[Dict] = None
+    ) -> "Config":
+        """
+        创建新的配置实例（非单例）
+
+        Args:
+            config_path: 配置文件路径
+            config_dict: 配置字典
+
+        Returns:
+            Config: 新的配置实例
+        """
+        return cls(config_path=config_path, config_dict=config_dict, singleton=False)
 
     def _load_from_file(self, config_path: str):
         """从文件加载配置"""
@@ -210,8 +314,28 @@ class Config:
         """转换为字典"""
         return self._config.copy()
 
-    def save_to_file(self, file_path: str):
+    def reload(self, config_path: Optional[str] = None):
+        """重新加载配置"""
+        if config_path is None:
+            config_path = self.config_path
+
+        if config_path and Path(config_path).exists():
+            self._config = get_default_config()
+            self._load_from_file(config_path)
+            self._load_from_env()
+            self._validate_config()
+            logger.info("配置已重新加载")
+        else:
+            logger.warning("无法重新加载配置：未找到配置文件")
+
+    def save_to_file(self, file_path: Optional[str] = None):
         """保存配置到文件"""
+        if file_path is None:
+            file_path = self.config_path
+
+        if file_path is None:
+            raise ValueError("未指定保存路径")
+
         try:
             Path(file_path).parent.mkdir(parents=True, exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
@@ -271,120 +395,5 @@ class Config:
         return self.get("api.enabled_apis", [])
 
 
-class ConfigManager(BaseManager):
-    """配置管理器"""
-
-    _instance: Optional["ConfigManager"] = None
-    _config: Optional[Config] = None
-
-    def __new__(cls, config=None, **dependencies):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def __init__(self, config=None, **dependencies):
-        """
-        初始化配置管理器
-
-        Args:
-            config: 配置对象或路径
-            **dependencies: 依赖对象
-        """
-        # 避免重复初始化
-        if hasattr(self, "_initialized"):
-            return
-
-        # 如果config是字符串，则视为配置文件路径
-        if isinstance(config, str):
-            config_path = config
-            config = None
-        else:
-            config_path = None
-
-        # 调用BaseManager初始化
-        super().__init__(config=config, **dependencies)
-
-        # 如果提供了配置路径，则加载配置
-        if config_path:
-            self._config = Config(config_path)
-        elif self._config is None:
-            self._config = self.config
-
-        self._initialized = True
-
-    def _init_specific_config(self):
-        """初始化配置管理器特定配置"""
-        # 配置相关设置
-        self.auto_reload = self._get_config("auto_reload", True)
-        self.config_validation = self._get_config("config_validation", True)
-        self.backup_config = self._get_config("backup_config", True)
-        self.environment_override = self._get_config("environment_override", True)
-
-    def _init_components(self):
-        """初始化配置组件"""
-        pass  # ConfigManager没有需要初始化的组件
-
-    def _get_required_attributes(self) -> list:
-        """获取必需属性列表"""
-        return ["_config"]
-
-    @classmethod
-    def initialize(
-        cls, config_path: Optional[str] = None, config_dict: Optional[Dict] = None
-    ) -> "ConfigManager":
-        """
-        初始化配置管理器
-
-        Args:
-            config_path: 配置文件路径
-            config_dict: 配置字典
-
-        Returns:
-            ConfigManager: 配置管理器实例
-        """
-        if config_path:
-            instance = cls(config=config_path)
-        else:
-            config_obj = Config(config_path, config_dict)
-            instance = cls(config=config_obj)
-        return instance
-
-    @classmethod
-    def get_instance(cls) -> "ConfigManager":
-        """获取配置管理器实例"""
-        if cls._instance is None or cls._instance._config is None:
-            raise RuntimeError("配置管理器未初始化，请先调用 initialize()")
-        return cls._instance
-
-    @property
-    def config_obj(self) -> Config:
-        """获取配置对象"""
-        if self._config is None:
-            raise RuntimeError("配置未初始化")
-        return self._config
-
-    def reload(self, config_path: Optional[str] = None):
-        """重新加载配置"""
-        if config_path is None and self._config:
-            config_path = self._config.config_path
-
-        self._config = Config(config_path)
-        logger.info("配置已重新加载")
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """获取配置值"""
-        return self.config_obj.get(key, default)
-
-    def set(self, key: str, value: Any):
-        """设置配置值"""
-        self.config_obj.set(key, value)
-
-    def save(self, file_path: Optional[str] = None):
-        """保存配置"""
-        if file_path is None and self._config:
-            file_path = self._config.config_path
-
-        if file_path:
-            self.config_obj.save_to_file(file_path)
-        else:
-            raise ValueError("未指定保存路径")
+# 为了向后兼容，保留ConfigManager作为Config的别名
+ConfigManager = Config

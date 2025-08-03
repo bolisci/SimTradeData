@@ -105,7 +105,9 @@ class DataProcessingEngine(BaseManager):
             raw_data = self.data_source_manager.get_daily_data(
                 symbol, start_date, end_date
             )
-            self.logger.debug(f"原始数据获取完成，类型: {type(raw_data)}")
+            self.logger.debug(
+                f"原始数据获取完成，类型: {type(raw_data)}, 内容: {raw_data}"
+            )
 
             # 检查数据格式
             if raw_data is None:
@@ -132,14 +134,42 @@ class DataProcessingEngine(BaseManager):
                 raise
 
             # 统一数据格式处理 - 避免多次拆包
-            # 如果数据源返回的是标准格式 {"success": bool, "data": ..., "count": int}
+            # 调试：记录完整的原始数据结构
+            if isinstance(raw_data, dict):
+                self.logger.debug(f"API返回字典，键: {list(raw_data.keys())}")
+                self.logger.debug(
+                    f"success字段值: {raw_data.get('success')}, 类型: {type(raw_data.get('success'))}"
+                )
+                if "data" in raw_data:
+                    self.logger.debug(f"data字段类型: {type(raw_data['data'])}")
+
+            # 处理多层嵌套的API响应格式
+            # 递归解包相同的success/data结构，直到达到不同的结构
+            while (
+                isinstance(raw_data, dict)
+                and "success" in raw_data
+                and raw_data.get("success") is True
+                and "data" in raw_data
+                and isinstance(raw_data["data"], dict)
+                and "success" in raw_data["data"]
+                and "error_code" in raw_data
+                and "message" in raw_data
+            ):
+                raw_data = raw_data["data"]
+                self.logger.debug(f"递归解包相同结构后的数据类型: {type(raw_data)}")
+
+            # 最后一层解包: {'success': bool, 'data': [...], 'count': int, 'source': str}
             if (
                 isinstance(raw_data, dict)
                 and "success" in raw_data
-                and raw_data.get("success")
+                and raw_data.get("success") is True
+                and "data" in raw_data
+                and "count" in raw_data
+                and "source" in raw_data
             ):
-                if "data" in raw_data:
-                    raw_data = raw_data["data"]
+                raw_data = raw_data["data"]
+                self.logger.debug(f"最终解包后的数据类型: {type(raw_data)}")
+
             # 如果是简单的包装格式 {"data": ...}（没有success字段）
             elif (
                 isinstance(raw_data, dict)
@@ -147,6 +177,7 @@ class DataProcessingEngine(BaseManager):
                 and "success" not in raw_data
             ):
                 raw_data = raw_data["data"]
+                self.logger.debug(f"解包data格式后的数据: {type(raw_data)}")
             # 否则直接使用原始数据
 
             self.logger.debug(f"处理后数据类型: {type(raw_data)}")

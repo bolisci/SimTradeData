@@ -46,7 +46,8 @@ class TestDatabaseSetup:
             config_dict={
                 "database": {"path": temp_db_path},
                 "logging": {"level": "INFO"},
-            }
+            },
+            singleton=False,  # 禁用单例模式避免测试间干扰
         )
 
     def test_database_connection(self, db_manager):

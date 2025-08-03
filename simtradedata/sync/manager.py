@@ -945,8 +945,34 @@ class SyncManager(BaseManager):
                 start_date, end_date
             )
 
-            if isinstance(calendar_data, dict) and "data" in calendar_data:
+            self.logger.debug(
+                f"获取到交易日历原始数据: {type(calendar_data)}, 内容: {calendar_data}"
+            )
+
+            # 处理嵌套格式
+            if isinstance(calendar_data, dict) and "success" in calendar_data:
+                if calendar_data.get("success"):
+                    if "data" in calendar_data:
+                        calendar_data = calendar_data["data"]
+                        # 检查是否有更深层嵌套
+                        while (
+                            isinstance(calendar_data, dict)
+                            and "success" in calendar_data
+                            and calendar_data.get("success")
+                            and "data" in calendar_data
+                        ):
+                            calendar_data = calendar_data["data"]
+                else:
+                    self.logger.warning(
+                        f"交易日历获取失败: {calendar_data.get('message', '未知错误')}"
+                    )
+                    continue
+            elif isinstance(calendar_data, dict) and "data" in calendar_data:
                 calendar_data = calendar_data["data"]
+
+            self.logger.debug(
+                f"处理后交易日历数据: {type(calendar_data)}, 长度: {len(calendar_data) if isinstance(calendar_data, list) else 'N/A'}"
+            )
 
             if not calendar_data or not isinstance(calendar_data, list):
                 continue
@@ -954,7 +980,7 @@ class SyncManager(BaseManager):
             # 插入数据
             for record in calendar_data:
                 self.db_manager.execute(
-                    "INSERT OR REPLACE INTO trading_calendar (date, market, is_trading) VALUES (?, ?, ?)",
+                    "INSERT OR REPLACE INTO trading_calendar (date, market, is_trading_day) VALUES (?, ?, ?)",
                     (
                         record.get("trade_date", record.get("date")),
                         "CN",
@@ -971,9 +997,15 @@ class SyncManager(BaseManager):
         return {
             "status": "completed",
             "start_year": (
-                final_range["min_date"][:4] if final_range else needed_start_year
+                int(final_range["min_date"][:4])
+                if final_range and final_range["min_date"]
+                else needed_start_year
             ),
-            "end_year": final_range["max_date"][:4] if final_range else needed_end_year,
+            "end_year": (
+                int(final_range["max_date"][:4])
+                if final_range and final_range["max_date"]
+                else needed_end_year
+            ),
             "updated_records": total_inserted,
             "total_records": final_range["count"] if final_range else 0,
         }

@@ -24,7 +24,10 @@ class BaseTestClass:
     @pytest.fixture
     def config(self):
         """配置对象fixture"""
-        return Config()
+        config = Config()
+        # 测试环境使用baostock作为优先数据源，因为它支持交易日历查询
+        config.set("data_sources.priority", ["baostock", "qstock", "akshare"])
+        return config
 
     @pytest.fixture
     def temp_db(self, config):
@@ -56,9 +59,9 @@ class BaseTestClass:
         return temp_db
 
     @pytest.fixture
-    def data_source_manager(self, config):
+    def data_source_manager(self, config, db_manager):
         """数据源管理器fixture"""
-        return DataSourceManager(config)
+        return DataSourceManager(config, db_manager=db_manager)
 
     @pytest.fixture
     def processing_engine(self, db_manager, data_source_manager, config):
@@ -115,10 +118,10 @@ class BaseTestClass:
         db_manager.execute(
             """
             CREATE TABLE IF NOT EXISTS trading_calendar (
-                date DATE PRIMARY KEY,
-                is_trading_day INTEGER NOT NULL DEFAULT 1,
-                market TEXT DEFAULT 'CN',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                date TEXT NOT NULL,
+                market TEXT NOT NULL DEFAULT 'CN',
+                is_trading INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (date, market)
             )
         """
         )
@@ -141,6 +144,39 @@ class BaseTestClass:
                 last_update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (symbol, frequency)
             )
+        """
+        )
+
+        # 添加data_sources表用于测试
+        db_manager.execute(
+            """
+            CREATE TABLE IF NOT EXISTS data_sources (
+                name TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                enabled BOOLEAN DEFAULT TRUE,
+                priority INTEGER DEFAULT 1,
+                rate_limit INTEGER DEFAULT 60,
+                supports_realtime BOOLEAN DEFAULT FALSE,
+                supports_history BOOLEAN DEFAULT TRUE,
+                supports_financials BOOLEAN DEFAULT FALSE,
+                markets TEXT,
+                frequencies TEXT,
+                status TEXT DEFAULT 'active',
+                last_check TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        # 插入测试数据源配置（优先使用baostock，它支持交易日历）
+        db_manager.execute(
+            """
+            INSERT OR REPLACE INTO data_sources (name, type, priority, supports_history, markets, frequencies, status)
+            VALUES
+                ('baostock', 'baostock', 1, 1, '["SZ","SS"]', '["1d"]', 'active'),
+                ('qstock', 'qstock', 2, 1, '["SZ","SS"]', '["1d","5m","15m","30m","1h"]', 'active'),
+                ('akshare', 'akshare', 3, 1, '["SZ","SS"]', '["1d"]', 'active')
         """
         )
 

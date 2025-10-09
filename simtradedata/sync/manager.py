@@ -900,7 +900,7 @@ class SyncManager(BaseManager):
             status_data AS (
                 SELECT DISTINCT symbol, status FROM extended_sync_status
                 WHERE symbol IN ({placeholders})
-                AND target_date = ? AND status IN ('completed', 'partial')
+                AND target_date = ? AND status IN ('completed', 'partial', 'failed')
             )
             SELECT 
                 sl.symbol,

@@ -335,8 +335,9 @@ lsof data/simtradedata.db
 
 ## 🔗 相关文档
 
-- [开发者指南](./DEVELOPER_GUIDE.md)
-- [架构说明](./Architecture_Guide.md)
+- [开发者指南](../docs/DEVELOPER_GUIDE.md)
+- [架构指南](../docs/Architecture_Guide.md)
+- [生产部署指南](../docs/PRODUCTION_DEPLOYMENT_GUIDE.md)
 - [数据库 Schema](../simtradedata/database/schema.py)
 
 ---

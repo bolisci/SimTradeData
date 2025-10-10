@@ -713,11 +713,11 @@ export SIMTRADEDATA_LOG_LEVEL=WARNING
 
 ### C. 相关文档
 
-- [技术指标优化报告](./INDICATORS_OPTIMIZATION_REPORT.md)
-- [告警系统实现报告](./ALERT_SYSTEM_IMPLEMENTATION_REPORT.md)
-- [项目完成报告](./PROJECT_COMPLETION_REPORT.md)
-- [用户指南](../USER_GUIDE.md)
-- [开发者指南](../DEVELOPER_GUIDE.md)
+- [架构指南](Architecture_Guide.md) - 完整的系统架构和设计
+- [开发者指南](DEVELOPER_GUIDE.md) - 开发者扩展开发指南
+- [CLI使用指南](CLI_USAGE_GUIDE.md) - 命令行工具使用说明
+- [API参考文档](API_REFERENCE.md) - 完整的API接口文档
+- [项目完成报告](archive/reports/PROJECT_COMPLETION_REPORT.md) - 历史归档
 
 ---
 

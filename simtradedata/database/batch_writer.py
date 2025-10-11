@@ -82,7 +82,9 @@ class BatchWriter:
 
         # 自动刷新
         if self.auto_flush and buffer_size >= self.batch_size:
-            logger.debug(f"表 {table} 缓冲区达到 {buffer_size} 条,自动刷新")
+            logger.debug(
+                f"table {table} buffer reached {buffer_size} records , automatic flush"
+            )
             self.flush(table)
             return 0
 
@@ -106,13 +108,13 @@ class BatchWriter:
             return self.flush_all()
 
         if table not in self._buffer or not self._buffer[table]:
-            logger.debug(f"表 {table} 缓冲区为空,跳过刷新")
+            logger.debug(f"table {table} buffer is empty , skipping flush")
             return 0
 
         records = self._buffer[table]
         record_count = len(records)
 
-        logger.debug(f"开始刷新表 {table},共 {record_count} 条记录")
+        logger.debug(f"start flush table {table}, total {record_count} records records")
 
         try:
             start_time = time.time()
@@ -142,12 +144,12 @@ class BatchWriter:
             self._buffer[table].clear()
 
             logger.info(
-                f"表 {table} 批量写入成功: {record_count} 条记录, 耗时 {elapsed:.3f}秒"
+                f"table {table} batch write succeeded : {record_count} records records , elapsed {elapsed:.3f} seconds"
             )
             return record_count
 
         except Exception as e:
-            logger.error(f"表 {table} 批量写入失败: {e}")
+            logger.error(f"table {table} batch write failed : {e}")
             self._stats["failed_batches"] += 1
             # 保留缓冲区数据,不清空
             raise
@@ -169,13 +171,13 @@ class BatchWriter:
                 count = self.flush(table)
                 results[table] = count
             except Exception as e:
-                logger.warning(f"刷新表 {table} 失败,将在最后重试: {e}")
+                logger.warning(f"flush table {table} failed , will retry at last : {e}")
                 failed_tables.append((table, e))
                 results[table] = 0
 
         # 报告失败情况
         if failed_tables:
-            logger.warning(f"以下表刷新失败: {[t for t, _ in failed_tables]}")
+            logger.warning(f"next table flush failed : {[t for t, _ in failed_tables]}")
 
         return results
 
@@ -201,11 +203,13 @@ class BatchWriter:
             raise ValueError("SQL 语句不能为空")
 
         if not params_list:
-            logger.debug("参数列表为空,跳过执行")
+            logger.debug("parameters list is empty , skip execution")
             return 0
 
         record_count = len(params_list)
-        logger.debug(f"批量执行 SQL: {sql[:100]}..., 共 {record_count} 条记录")
+        logger.debug(
+            f"batch execution SQL: {sql[:100]}..., total {record_count} records records"
+        )
 
         try:
             start_time = time.time()
@@ -223,11 +227,13 @@ class BatchWriter:
             self._stats["total_batches"] += 1
             self._stats["total_flush_time"] += elapsed
 
-            logger.info(f"批量执行成功: {record_count} 条记录, 耗时 {elapsed:.3f}秒")
+            logger.info(
+                f"batch execution succeeded : {record_count} records records , elapsed {elapsed:.3f} seconds"
+            )
             return record_count
 
         except Exception as e:
-            logger.error(f"批量执行失败: {e}")
+            logger.error(f"batch execution failed : {e}")
             self._stats["failed_batches"] += 1
             raise
 
@@ -254,11 +260,11 @@ class BatchWriter:
         """
         if table is None:
             self._buffer.clear()
-            logger.debug("已清空所有表的缓冲区")
+            logger.debug("cleared all table buffers")
         else:
             if table in self._buffer:
                 self._buffer[table].clear()
-                logger.debug(f"已清空表 {table} 的缓冲区")
+                logger.debug(f"cleared table {table} buffer")
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -303,10 +309,10 @@ class BatchWriter:
         """上下文管理器出口,自动刷新缓冲区"""
         try:
             if self.get_buffer_size() > 0:
-                logger.info("退出 BatchWriter,刷新剩余缓冲数据")
+                logger.info("exit BatchWriter , flush remaining buffered data")
                 self.flush_all()
         except Exception as e:
-            logger.error(f"退出时刷新缓冲区失败: {e}")
+            logger.error(f"flush buffer on exit failed : {e}")
         return False
 
     def __repr__(self) -> str:

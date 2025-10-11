@@ -41,7 +41,7 @@ class SectorDataManager(BaseManager):
         # 调用BaseManager初始化
         super().__init__(config=config, db_manager=db_manager, **dependencies)
 
-        self.logger.info("板块数据管理器初始化完成")
+        self.logger.info("sector data manage er initialized")
 
         # 行业分类标准
         self.industry_standards = {
@@ -127,11 +127,13 @@ class SectorDataManager(BaseManager):
                 ),
             )
 
-            logger.debug(f"行业分类保存成功: {standardized_data['symbol']}")
+            logger.debug(
+                f"industry classification saving succeeded : {standardized_data['symbol']}"
+            )
             return True
 
         except Exception as e:
-            logger.error(f"保存行业分类失败: {e}")
+            logger.error(f"saving industry classification failed : {e}")
             return False
 
     def save_concept_sector(self, sector_data: Dict[str, Any]) -> bool:
@@ -167,11 +169,13 @@ class SectorDataManager(BaseManager):
                 ),
             )
 
-            logger.debug(f"概念板块保存成功: {standardized_data['sector_code']}")
+            logger.debug(
+                f"concept sector saving succeeded : {standardized_data['sector_code']}"
+            )
             return True
 
         except Exception as e:
-            logger.error(f"保存概念板块失败: {e}")
+            logger.error(f"saving concept sector failed : {e}")
             return False
 
     def save_sector_constituents(
@@ -233,15 +237,17 @@ class SectorDataManager(BaseManager):
                     saved_count += 1
 
                 except Exception as e:
-                    logger.error(f"保存单个成分股失败 {constituent}: {e}")
+                    logger.error(
+                        f"saving single constituent stocks failed {constituent}: {e}"
+                    )
 
             logger.info(
-                f"板块成分股保存完成: {sector_code}, 成功保存 {saved_count} 只成分股"
+                f"sector constituent stocks saving completed : {sector_code}, succeeded saving {saved_count} constituent stocks"
             )
             return saved_count > 0
 
         except Exception as e:
-            logger.error(f"保存板块成分股失败: {e}")
+            logger.error(f"saving sector constituent stocks failed : {e}")
             return False
 
     def save_index_info(self, index_data: Dict[str, Any]) -> bool:
@@ -284,11 +290,13 @@ class SectorDataManager(BaseManager):
                 ),
             )
 
-            logger.debug(f"指数信息保存成功: {standardized_data['index_code']}")
+            logger.debug(
+                f"index info saving succeeded : {standardized_data['index_code']}"
+            )
             return True
 
         except Exception as e:
-            logger.error(f"保存指数信息失败: {e}")
+            logger.error(f"saving index info failed : {e}")
             return False
 
     def get_stock_industry(
@@ -319,7 +327,7 @@ class SectorDataManager(BaseManager):
                 return None
 
         except Exception as e:
-            logger.error(f"获取股票行业分类失败: {e}")
+            logger.error(f"retrieving stock industry classification failed : {e}")
             return None
 
     def get_sector_constituents(
@@ -363,7 +371,7 @@ class SectorDataManager(BaseManager):
             return [dict(row) for row in results]
 
         except Exception as e:
-            logger.error(f"获取板块成分股失败: {e}")
+            logger.error(f"failed to retrieve sector constituent stocks : {e}")
             return []
 
     def get_stock_sectors(self, symbol: str) -> List[Dict[str, Any]]:
@@ -390,7 +398,7 @@ class SectorDataManager(BaseManager):
             return [dict(row) for row in results]
 
         except Exception as e:
-            logger.error(f"获取股票所属板块失败: {e}")
+            logger.error(f"retrieving stock belonging to sector failed : {e}")
             return []
 
     def get_sector_list(
@@ -429,7 +437,7 @@ class SectorDataManager(BaseManager):
             return [dict(row) for row in results]
 
         except Exception as e:
-            logger.error(f"获取板块列表失败: {e}")
+            logger.error(f"failed to retrieve sector list : {e}")
             return []
 
     def get_industry_tree(self, standard: str = "sw") -> Dict[str, Any]:
@@ -493,7 +501,7 @@ class SectorDataManager(BaseManager):
             }
 
         except Exception as e:
-            logger.error(f"获取行业分类树失败: {e}")
+            logger.error(f"retrieving industry classification tree failed : {e}")
             return {}
 
     def calculate_sector_performance(
@@ -568,12 +576,12 @@ class SectorDataManager(BaseManager):
             }
 
             logger.debug(
-                f"板块业绩计算完成: {sector_code}, 收益率: {sector_return:.2f}%"
+                f"sector performance calculating completed : {sector_code}, 收益率: {sector_return:.2f}%"
             )
             return performance
 
         except Exception as e:
-            logger.error(f"计算板块业绩失败: {e}")
+            logger.error(f"calculating sector performance failed : {e}")
             return {}
 
     def _standardize_classification_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -681,5 +689,5 @@ class SectorDataManager(BaseManager):
             }
 
         except Exception as e:
-            logger.error(f"获取管理器统计失败: {e}")
+            logger.error(f"failed to get manager statistics : {e}")
             return {}

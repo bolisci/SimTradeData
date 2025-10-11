@@ -34,7 +34,7 @@ class ResultFormatter:
         self.date_format = self.config.get("api.date_format", "%Y-%m-%d")
         self.include_metadata = self.config.get("api.include_metadata", True)
 
-        logger.debug("结果格式化器初始化完成")
+        logger.debug("result formatter initialized")
 
     def format_result(
         self,
@@ -72,11 +72,13 @@ class ResultFormatter:
             else:
                 raise ValueError(f"不支持的格式类型: {format_type}")
 
-            logger.debug(f"结果格式化完成: {format_type}, 数据量: {len(data)}")
+            logger.debug(
+                f"result formatting completed : {format_type}, data count : {len(data)}"
+            )
             return result
 
         except Exception as e:
-            logger.error(f"结果格式化失败: {e}")
+            logger.error(f"result formatting failed : {e}")
             raise
 
     def _preprocess_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -123,7 +125,7 @@ class ResultFormatter:
             return df
 
         except Exception as e:
-            logger.error(f"DataFrame转换失败: {e}")
+            logger.error(f"DataFrame conversion failed : {e}")
             return pd.DataFrame(data)
 
     def _optimize_dataframe_dtypes(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -185,7 +187,7 @@ class ResultFormatter:
             return df
 
         except Exception as e:
-            logger.warning(f"数据类型优化失败: {e}")
+            logger.warning(f"data type optimization failed : {e}")
             return df
 
     def _to_json(
@@ -208,7 +210,7 @@ class ResultFormatter:
             )
 
         except Exception as e:
-            logger.error(f"JSON转换失败: {e}")
+            logger.error(f"JSON conversion failed : {e}")
             return json.dumps({"error": str(e), "data": []})
 
     def _to_dict(
@@ -229,7 +231,7 @@ class ResultFormatter:
             return result
 
         except Exception as e:
-            logger.error(f"字典转换失败: {e}")
+            logger.error(f"dict conversion failed : {e}")
             return {"error": str(e), "data": []}
 
     def _to_records(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

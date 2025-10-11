@@ -118,9 +118,11 @@ class DataSourceManager(BaseManager):
                             heartbeat_interval=self.connection_manager_heartbeat_interval,
                             lock_timeout=self.connection_manager_lock_timeout,
                         )
-                        self.logger.info(f"为 {source_name} 创建 ConnectionManager")
+                        self.logger.info(f"for {source_name} create ConnectionManager")
 
-                    self.logger.info(f"数据源 {source_name} 注册成功")
+                    self.logger.info(
+                        f"data source {source_name} registration succeeded"
+                    )
 
                 except Exception as e:
                     self._log_error("_initialize_sources", e, source_name=source_name)
@@ -209,13 +211,15 @@ class DataSourceManager(BaseManager):
 
             if not hasattr(self, "db_manager") or not self.db_manager:
                 # 如果没有数据库连接，使用基本可用数据源
-                self.logger.warning("无数据库连接，使用基本数据源列表")
+                self.logger.warning(
+                    "no database connection , using basic data source list"
+                )
                 return self.get_available_sources()
 
             sources = self.db_manager.fetchall(sql)
 
             if not sources:
-                self.logger.warning("数据库中没有找到可用数据源")
+                self.logger.warning("database not found in available data source")
                 return self.get_available_sources()
 
             # 根据市场、频率、数据类型过滤适用的数据源
@@ -257,14 +261,14 @@ class DataSourceManager(BaseManager):
 
             if not suitable_sources:
                 self.logger.warning(
-                    f"没有找到支持 {market}_{frequency}_{data_type} 的数据源"
+                    f"not found support {market}_{frequency}_{data_type} data source"
                 )
                 return self.get_available_sources()
 
             return suitable_sources
 
         except Exception as e:
-            self.logger.error(f"从数据库读取数据源优先级失败: {e}")
+            self.logger.error(f"read data source priority from database failed : {e}")
             # 出错时返回基本可用数据源
             return self.get_available_sources()
 
@@ -333,7 +337,9 @@ class DataSourceManager(BaseManager):
                 # 其他数据源使用原有逻辑
                 # 确保连接（只在首次使用时连接，之后保持连接状态）
                 if not source.is_connected():
-                    self.logger.debug(f"数据源 {source_name} 未连接，正在建立连接...")
+                    self.logger.debug(
+                        f"data source {source_name} not connected , establishing connection ..."
+                    )
                     source.connect()
                     self.source_status[source_name]["connected"] = True
 
@@ -456,7 +462,7 @@ class DataSourceManager(BaseManager):
             # 获取所有股票列表 - 强制使用 BaoStock（快速、权威）
             priorities = ["baostock"]
             self.logger.debug(
-                "获取股票列表：强制使用 BaoStock（跳过慢速的 mootdx 在线API）"
+                "retrieving stock list : force use BaoStock (skipping 慢速 mootdx 在线 API)"
             )
         else:
             # 获取单个股票信息 - 使用正常优先级
@@ -534,18 +540,22 @@ class DataSourceManager(BaseManager):
         priorities = ["mootdx", "baostock"]
 
         self.logger.info(
-            f"开始批量导入财务数据: report_date={report_date}, report_type={report_type}"
+            f"starting batch importing financial data : report_date={report_date}, report_type={report_type}"
         )
 
         for source_name in priorities:
             source = self.get_source(source_name)
             if not source:
-                self.logger.debug(f"数据源 {source_name} 不可用，尝试下一个")
+                self.logger.debug(
+                    f"data source {source_name} not available , attempting next"
+                )
                 continue
 
             # 检查是否支持批量导入
             if not hasattr(source, "batch_import_financial_data"):
-                self.logger.debug(f"数据源 {source_name} 不支持批量导入，尝试下一个")
+                self.logger.debug(
+                    f"data source {source_name} does not support batch import , attempting next"
+                )
                 continue
 
             try:
@@ -562,7 +572,7 @@ class DataSourceManager(BaseManager):
 
                     if result.get("success") and result.get("data"):
                         self.logger.info(
-                            f"批量导入成功: source={source_name}, "
+                            f"batch import succeeded : source={source_name},"
                             f"count={result.get('count', 0)}, "
                             f"success={result.get('success_count', 0)}, "
                             f"error={result.get('error_count', 0)}"
@@ -570,15 +580,17 @@ class DataSourceManager(BaseManager):
                         return result
                     else:
                         self.logger.warning(
-                            f"数据源 {source_name} 批量导入失败: {result.get('error', 'Unknown error')}"
+                            f"data source {source_name} batch import failed : {result.get('error', 'Unknown error')}"
                         )
                 else:
                     self.logger.warning(
-                        f"数据源 {source_name} 返回格式错误: {type(result)}"
+                        f"data source {source_name} returned format error : {type(result)}"
                     )
 
             except Exception as e:
-                self.logger.error(f"数据源 {source_name} 批量导入异常: {e}")
+                self.logger.error(
+                    f"data source {source_name} batch import exception : {e}"
+                )
                 continue
 
         # 所有数据源都失败
@@ -760,7 +772,7 @@ class DataSourceManager(BaseManager):
         for source_name, conn_mgr in self.connection_managers.items():
             try:
                 conn_mgr.disconnect()
-                self.logger.info(f"ConnectionManager for {source_name} 已断开")
+                self.logger.info(f"ConnectionManager for {source_name} disconnected")
             except Exception as e:
                 self._log_error(
                     "disconnect_connection_manager", e, source_name=source_name
@@ -771,7 +783,7 @@ class DataSourceManager(BaseManager):
             try:
                 source.disconnect()
                 self.source_status[source_name]["connected"] = False
-                self.logger.info(f"数据源 {source_name} 已断开")
+                self.logger.info(f"data source {source_name} disconnected")
             except Exception as e:
                 self._log_error("disconnect_all", e, source_name=source_name)
 
@@ -818,11 +830,15 @@ class DataSourceManager(BaseManager):
 
                 result = source.get_stock_concepts(symbol)
                 if result and result.get("success"):
-                    self.logger.debug(f"从 {source_name} 获取概念数据成功: {symbol}")
+                    self.logger.debug(
+                        f"retrieving from {source_name} concept data succeeded : {symbol}"
+                    )
                     return result
 
             except Exception as e:
-                self.logger.warning(f"从 {source_name} 获取概念数据失败 {symbol}: {e}")
+                self.logger.warning(
+                    f"retrieving from {source_name} concept data failed {symbol}: {e}"
+                )
                 continue
 
         # 如果所有数据源都失败，返回空结果

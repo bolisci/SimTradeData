@@ -67,7 +67,7 @@ class TechnicalIndicatorManager(BaseManager):
         self.cache_enabled = self.config.get("indicators.cache_enabled", True)
         self.cache_ttl = self.config.get("indicators.cache_ttl", 3600)  # 1小时
 
-        self.logger.info("技术指标管理器初始化完成")
+        self.logger.info("technical indicators manager initialized completed")
 
     def _init_specific_config(self):
         """初始化技术指标管理器特定配置"""
@@ -130,7 +130,7 @@ class TechnicalIndicatorManager(BaseManager):
             price_data = self._get_price_data(symbol, start_date, end_date)
 
             if price_data.empty:
-                logger.warning(f"无法获取价格数据: {symbol}")
+                logger.warning(f"unable to retrieve price data : {symbol}")
                 return []
 
             # 计算指标
@@ -141,7 +141,7 @@ class TechnicalIndicatorManager(BaseManager):
                 indicator_func = self.custom_indicators[indicator_name]
                 result = indicator_func(price_data, params)
             else:
-                logger.error(f"未知的技术指标: {indicator_name}")
+                logger.error(f"unknown technical indicator : {indicator_name}")
                 return []
 
             # 缓存结果
@@ -151,12 +151,12 @@ class TechnicalIndicatorManager(BaseManager):
                 )
 
             logger.debug(
-                f"技术指标计算完成: {symbol} {indicator_name}, 数据点: {len(result)}"
+                f"technical indicator calculation completed : {symbol} {indicator_name}, data 点: {len(result)}"
             )
             return result
 
         except Exception as e:
-            logger.error(f"计算技术指标失败: {e}")
+            logger.error(f"failed to calculate technical indicators : {e}")
             return []
 
     def batch_calculate_indicators(
@@ -194,12 +194,12 @@ class TechnicalIndicatorManager(BaseManager):
                     results[symbol][indicator_name] = indicator_data
 
             logger.info(
-                f"批量指标计算完成: {len(symbols)} 只股票, {len(indicator_configs)} 个指标"
+                f"批量 indicators calculating completed : {len(symbols)} stocks , {len(indicator_configs)} indicators"
             )
             return results
 
         except Exception as e:
-            logger.error(f"批量计算技术指标失败: {e}")
+            logger.error(f"failed to batch calculate technical indicators : {e}")
             return {}
 
     def register_custom_indicator(
@@ -236,11 +236,11 @@ class TechnicalIndicatorManager(BaseManager):
                 ),
             )
 
-            logger.info(f"自定义指标注册成功: {name}")
+            logger.info(f"custom indicator registration succeeded : {name}")
             return True
 
         except Exception as e:
-            logger.error(f"注册自定义指标失败: {e}")
+            logger.error(f"failed to register custom indicator : {e}")
             return False
 
     def get_available_indicators(self) -> Dict[str, List[str]]:
@@ -287,7 +287,7 @@ class TechnicalIndicatorManager(BaseManager):
             return df
 
         except Exception as e:
-            logger.error(f"获取价格数据失败: {e}")
+            logger.error(f"retrieving price data failed : {e}")
             return pd.DataFrame()
 
     def _calculate_ma(
@@ -637,7 +637,7 @@ class TechnicalIndicatorManager(BaseManager):
             return None
 
         except Exception as e:
-            logger.error(f"获取缓存指标失败: {e}")
+            logger.error(f"failed to get cached indicators : {e}")
             return None
 
     def _cache_indicator(
@@ -673,7 +673,7 @@ class TechnicalIndicatorManager(BaseManager):
             )
 
         except Exception as e:
-            logger.error(f"缓存指标数据失败: {e}")
+            logger.error(f"failed to cache indicator data : {e}")
 
     def _generate_cache_key(
         self,
@@ -713,11 +713,11 @@ class TechnicalIndicatorManager(BaseManager):
             self.db_manager.execute(sql, tuple(params))
 
             logger.info(
-                f"指标缓存清空完成: symbol={symbol}, indicator={indicator_name}"
+                f"indicators cache cleared : symbol={symbol}, indicator={indicator_name}"
             )
 
         except Exception as e:
-            logger.error(f"清空指标缓存失败: {e}")
+            logger.error(f"failed to clear indicators cache : {e}")
 
     def get_manager_stats(self) -> Dict[str, Any]:
         """获取管理器统计信息"""
@@ -747,5 +747,5 @@ class TechnicalIndicatorManager(BaseManager):
             }
 
         except Exception as e:
-            logger.error(f"获取管理器统计失败: {e}")
+            logger.error(f"failed to get manager statistics : {e}")
             return {}

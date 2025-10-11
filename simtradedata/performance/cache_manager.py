@@ -108,7 +108,7 @@ class MemoryCache(CacheBackend):
                 return True
 
             except Exception as e:
-                logger.error(f"设置内存缓存失败: {e}")
+                logger.error(f"setting memory cache failed : {e}")
                 return False
 
     def delete(self, key: str) -> bool:
@@ -421,11 +421,11 @@ class CacheManager(BaseManager):
                             del self.l2_cache[key]
 
                 self.logger.info(
-                    f"清理了 {len(keys_to_delete)} 个 L1 缓存项和 {len(l2_keys_to_delete)} 个 L2 缓存项，类型: {data_type}"
+                    f"cleaning {len(keys_to_delete)} L1 缓存项 and {len(l2_keys_to_delete)} L2 缓存项, type : {data_type}"
                 )
 
             except Exception as e:
-                self.logger.error(f"清理特定类型缓存失败: {e}")
+                self.logger.error(f"clean specific type cache failed : {e}")
                 success = False
 
             return success
@@ -527,7 +527,7 @@ class CacheManager(BaseManager):
 
                 if expired_count > 0:
                     self.stats["evictions"] += expired_count
-                    self.logger.debug(f"清理过期缓存: {expired_count} 个条目")
+                    self.logger.debug(f"clean expired cache : {expired_count} items")
 
             except Exception as e:
                 self._log_error("_cleanup_worker", e)
@@ -552,7 +552,9 @@ class CacheManager(BaseManager):
             raise ValidationError("缓存级别必须为l1或l2")
 
         self.cache_strategies[data_type] = {"ttl": ttl, "level": level}
-        self.logger.info(f"添加缓存策略: {data_type} -> TTL={ttl}, Level={level}")
+        self.logger.info(
+            f"adding cache strategy : {data_type} -> TTL={ttl}, Level={level}"
+        )
         return True
 
     @unified_error_handler(return_dict=True)
@@ -606,12 +608,12 @@ class CacheManager(BaseManager):
                 self._trading_calendar_loaded_at = time.time()
 
                 self.logger.info(
-                    f"加载交易日历缓存: {start_date} 到 {end_date}, 共 {loaded_count} 天"
+                    f"loading trading calendar cache : {start_date} to {end_date}, total {loaded_count} days"
                 )
                 return loaded_count
 
             except Exception as e:
-                self.logger.error(f"加载交易日历缓存失败: {e}")
+                self.logger.error(f"loading trading calendar cache failed : {e}")
                 raise
 
     @unified_error_handler(return_dict=True)
@@ -631,7 +633,9 @@ class CacheManager(BaseManager):
             if self._trading_calendar_loaded_at is not None:
                 age = time.time() - self._trading_calendar_loaded_at
                 if age > 604800:  # 7天 = 604800秒
-                    self.logger.debug("交易日历缓存已过期,需要重新加载")
+                    self.logger.debug(
+                        "trading calendar cache already expired , need reload"
+                    )
                     self._trading_calendar_cache.clear()
                     self._trading_calendar_loaded_at = None
 
@@ -653,7 +657,9 @@ class CacheManager(BaseManager):
             count = len(self._trading_calendar_cache)
             self._trading_calendar_cache.clear()
             self._trading_calendar_loaded_at = None
-            self.logger.info(f"清空交易日历缓存: {count} 条记录")
+            self.logger.info(
+                f"clearing trading calendar cache : {count} records records"
+            )
             return count
 
     # ================== Task 3.2: 股票元数据缓存 ==================
@@ -707,7 +713,7 @@ class CacheManager(BaseManager):
             self._last_data_date_cache[cache_key] = (last_date, time.time())
             self.stats["sets"] += 1
             self.logger.debug(
-                f"更新最后数据日期缓存: {symbol} {frequency} -> {last_date}"
+                f"updating last data date 缓存: {symbol} {frequency} -> {last_date}"
             )
             return True
 
@@ -754,7 +760,7 @@ class CacheManager(BaseManager):
         with self._metadata_lock:
             self._stock_metadata_cache[symbol] = (metadata, time.time())
             self.stats["sets"] += 1
-            self.logger.debug(f"设置股票元数据缓存: {symbol}")
+            self.logger.debug(f"setting stock metadata cache : {symbol}")
             return True
 
     @unified_error_handler(return_dict=True)
@@ -806,11 +812,13 @@ class CacheManager(BaseManager):
                     )
                     loaded_count += 1
 
-                self.logger.info(f"批量加载股票元数据: {loaded_count} 只股票")
+                self.logger.info(
+                    f"batch loading stock metadata : {loaded_count} stocks"
+                )
                 return loaded_count
 
             except Exception as e:
-                self.logger.error(f"批量加载股票元数据失败: {e}")
+                self.logger.error(f"batch loading stock metadata failed : {e}")
                 raise
 
     @unified_error_handler(return_dict=True)
@@ -824,7 +832,7 @@ class CacheManager(BaseManager):
             self._stock_metadata_cache.clear()
 
             self.logger.info(
-                f"清空元数据缓存: {last_date_count} 个最后日期, {metadata_count} 个股票元数据"
+                f"clearing metadata cache : {last_date_count} last date , {metadata_count} stock metadata"
             )
             return last_date_count + metadata_count
 

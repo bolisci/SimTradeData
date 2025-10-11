@@ -47,7 +47,7 @@ class BaseDataSource(ABC):
         self._last_request_time = None
         self._request_count = 0
 
-        logger.info(f"数据源 {self.name} 初始化完成")
+        logger.info(f"data source {self.name} initialized")
 
     @abstractmethod
     def connect(self) -> bool:
@@ -204,7 +204,7 @@ class BaseDataSource(ABC):
             sleep_time = 60 - (current_time - self._last_request_time)
             if sleep_time > 0:
                 logger.warning(
-                    f"数据源 {self.name} 达到频率限制，等待 {sleep_time:.1f} 秒"
+                    f"data source {self.name} reached frequency 限制, waiting {sleep_time:.1f} seconds"
                 )
                 time.sleep(sleep_time)
                 self._request_count = 0
@@ -227,12 +227,12 @@ class BaseDataSource(ABC):
                 if attempt < self.retry_times - 1:
                     wait_time = self.retry_delay * (2**attempt)  # 指数退避
                     logger.warning(
-                        f"数据源 {self.name} 请求失败 (尝试 {attempt + 1}/{self.retry_times}): {e}"
+                        f"data source {self.name} request failed ( attempting {attempt + 1}/{self.retry_times}): {e}"
                     )
-                    logger.info(f"等待 {wait_time} 秒后重试...")
+                    logger.info(f"waiting {wait_time} seconds before retry ...")
                     time.sleep(wait_time)
                 else:
-                    logger.error(f"数据源 {self.name} 请求最终失败: {e}")
+                    logger.error(f"data source {self.name} request final failure : {e}")
 
         raise last_error
 

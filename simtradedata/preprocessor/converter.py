@@ -35,7 +35,7 @@ class PTradeConverter:
         # 市场配置
         self.market_configs = self.config.get("markets", {})
 
-        logger.info("PTrade格式转换器初始化完成")
+        logger.info("PTrade format converting er initialized")
 
     def convert_to_ptrade(
         self,
@@ -62,7 +62,9 @@ class PTradeConverter:
             return {}
 
         try:
-            logger.debug(f"开始PTrade格式转换: {symbol} {target_date} {frequency}")
+            logger.debug(
+                f"starting PTrade format converting : {symbol} {target_date} {frequency}"
+            )
 
             if frequency == "1d":
                 # 日线数据转换
@@ -89,11 +91,11 @@ class PTradeConverter:
                 }
             )
 
-            logger.debug(f"PTrade格式转换完成: {symbol}")
+            logger.debug(f"PTrade format converting completed : {symbol}")
             return ptrade_data
 
         except Exception as e:
-            logger.error(f"PTrade格式转换失败 {symbol} {frequency}: {e}")
+            logger.error(f"PTrade format converting failed {symbol} {frequency}: {e}")
             return {}
 
     def _convert_daily_data(
@@ -166,7 +168,7 @@ class PTradeConverter:
             return ptrade_data
 
         except Exception as e:
-            logger.error(f"日线数据转换失败 {symbol}: {e}")
+            logger.error(f"daily data converting failed {symbol}: {e}")
             return {}
 
     def _convert_minute_data(
@@ -226,7 +228,7 @@ class PTradeConverter:
             return ptrade_data
 
         except Exception as e:
-            logger.error(f"分钟线数据转换失败 {symbol}: {e}")
+            logger.error(f"minute data converting failed {symbol}: {e}")
             return {}
 
     def _calculate_limit_price(
@@ -246,7 +248,7 @@ class PTradeConverter:
             return self._round_price(limit_price)
 
         except Exception as e:
-            logger.error(f"计算涨跌停价格失败 {symbol}: {e}")
+            logger.error(f"failed to calculate limit price {symbol}: {e}")
             return 0.0
 
     def _get_limit_ratio(self, symbol: str) -> float:
@@ -320,7 +322,7 @@ class PTradeConverter:
             return ptrade_data
 
         except Exception as e:
-            logger.error(f"计算派生字段失败: {e}")
+            logger.error(f"failed to calculate derived fields : {e}")
             return ptrade_data
 
     def _get_market_currency(self, market: str) -> str:
@@ -366,7 +368,7 @@ class PTradeConverter:
             return ptrade_info
 
         except Exception as e:
-            logger.error(f"股票信息转换失败 {symbol}: {e}")
+            logger.error(f"stock info converting failed {symbol}: {e}")
             return {}
 
     def convert_fundamentals(
@@ -401,7 +403,7 @@ class PTradeConverter:
             return ptrade_fundamentals
 
         except Exception as e:
-            logger.error(f"财务数据转换失败 {symbol}: {e}")
+            logger.error(f"financial data converting failed {symbol}: {e}")
             return {}
 
     def _parse_market_from_symbol(self, symbol: str) -> str:

@@ -89,7 +89,7 @@ class BatchScheduler(BaseManager):
         self.task_history = []
         self.scheduler_thread = None
 
-        self.logger.info("批处理调度器初始化完成")
+        self.logger.info("batch processing scheduler initialized completed")
 
     def _get_required_attributes(self) -> List[str]:
         """必需属性列表"""
@@ -98,15 +98,15 @@ class BatchScheduler(BaseManager):
     def start_scheduler(self):
         """启动调度器"""
         if not self.enable_scheduler:
-            logger.info("调度器已禁用")
+            logger.info("scheduler disabled")
             return
 
         if self.is_running:
-            logger.warning("调度器已在运行")
+            logger.warning("scheduler already running")
             return
 
         if schedule is None:
-            logger.error("schedule模块未安装，无法启动调度器")
+            logger.error("schedule module not installed , unable to start scheduler")
             return
 
         try:
@@ -121,10 +121,12 @@ class BatchScheduler(BaseManager):
             )
             self.scheduler_thread.start()
 
-            logger.info(f"批处理调度器已启动，每日同步时间: {self.daily_sync_time}")
+            logger.info(
+                f"batch processing scheduler started , daily synchronization time : {self.daily_sync_time}"
+            )
 
         except Exception as e:
-            logger.error(f"启动调度器失败: {e}")
+            logger.error(f"failed to start scheduler : {e}")
             self.is_running = False
 
     def stop_scheduler(self):
@@ -140,10 +142,10 @@ class BatchScheduler(BaseManager):
             if self.scheduler_thread and self.scheduler_thread.is_alive():
                 self.scheduler_thread.join(timeout=5)
 
-            logger.info("批处理调度器已停止")
+            logger.info("batch processing scheduler stopped")
 
         except Exception as e:
-            logger.error(f"停止调度器失败: {e}")
+            logger.error(f"failed to stop scheduler : {e}")
 
     def _scheduler_loop(self):
         """调度器主循环"""
@@ -153,7 +155,7 @@ class BatchScheduler(BaseManager):
                     schedule.run_pending()
                 time.sleep(60)  # 每分钟检查一次
             except Exception as e:
-                logger.error(f"调度器循环异常: {e}")
+                logger.error(f"scheduler loop exception : {e}")
                 time.sleep(60)
 
     def _run_daily_sync(self):
@@ -161,7 +163,7 @@ class BatchScheduler(BaseManager):
         task_id = f"daily_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         try:
-            logger.info(f"开始每日同步任务: {task_id}")
+            logger.info(f"starting daily synchronization task : {task_id}")
 
             # 记录任务开始
             task_info = {
@@ -189,10 +191,10 @@ class BatchScheduler(BaseManager):
             self.task_history.append(task_info)
             del self.current_tasks[task_id]
 
-            logger.info(f"每日同步任务完成: {task_id}")
+            logger.info(f"daily synchronization task completed : {task_id}")
 
         except Exception as e:
-            logger.error(f"每日同步任务失败: {task_id}, 错误: {e}")
+            logger.error(f"daily synchronization task failed : {task_id}, error : {e}")
 
             # 更新任务状态
             if task_id in self.current_tasks:
@@ -221,7 +223,7 @@ class BatchScheduler(BaseManager):
         if target_date is None:
             target_date = datetime.now().date()
 
-        logger.info(f"调度器启动每日数据同步: {target_date}")
+        logger.info(f"scheduler start daily data synchronization : {target_date}")
 
         try:
             # 委托给专业的同步管理器
@@ -231,11 +233,13 @@ class BatchScheduler(BaseManager):
                 frequencies=["1d"],  # 默认日线数据
             )
 
-            logger.info(f"每日数据同步完成: {target_date}")
+            logger.info(f"daily data synchronization completed : {target_date}")
             return result
 
         except Exception as e:
-            logger.error(f"每日数据同步失败: {target_date}, 错误: {e}")
+            logger.error(
+                f"daily data synchronization failed : {target_date}, error : {e}"
+            )
             raise
 
     def run_historical_sync(
@@ -255,7 +259,9 @@ class BatchScheduler(BaseManager):
         if end_date is None:
             end_date = datetime.now().date()
 
-        logger.info(f"调度器启动历史数据同步: {start_date} 到 {end_date}")
+        logger.info(
+            f"scheduler start historical data synchronization : {start_date} to {end_date}"
+        )
 
         try:
             # 对于历史数据同步，我们需要逐日处理
@@ -285,11 +291,13 @@ class BatchScheduler(BaseManager):
                     "error_count": sum(r["error_count"] for r in results),
                 }
 
-            logger.info(f"历史数据同步完成: {start_date} 到 {end_date}")
+            logger.info(
+                f"historical data synchronization completed : {start_date} to {end_date}"
+            )
             return result
 
         except Exception as e:
-            logger.error(f"历史数据同步失败: {e}")
+            logger.error(f"historical data synchronization failed : {e}")
             raise
 
     def run_parallel_sync(
@@ -305,7 +313,9 @@ class BatchScheduler(BaseManager):
         Returns:
             Dict[str, Any]: 同步结果
         """
-        logger.info(f"调度器启动并行数据同步: {target_date}, 股票数量: {len(symbols)}")
+        logger.info(
+            f"scheduler start parallel data synchronization : {target_date}, stock count : {len(symbols)}"
+        )
 
         try:
             # 委托给专业的同步管理器，它内部已经实现了并行处理
@@ -313,11 +323,11 @@ class BatchScheduler(BaseManager):
                 target_date=target_date, symbols=symbols, frequencies=["1d"]
             )
 
-            logger.info(f"并行数据同步完成: {target_date}")
+            logger.info(f"parallel data synchronization completed : {target_date}")
             return result
 
         except Exception as e:
-            logger.error(f"并行数据同步失败: {e}")
+            logger.error(f"parallel data synchronization failed : {e}")
             raise
 
     # _process_symbol_batch 方法已移除 - 批处理逻辑现在由 SyncManager 处理
@@ -325,7 +335,7 @@ class BatchScheduler(BaseManager):
     def _update_stock_list(self):
         """更新股票列表"""
         try:
-            logger.info("更新股票列表...")
+            logger.info("update stock list ...")
             stock_list = self.data_source_manager.get_stock_info()
 
             if (isinstance(stock_list, list) and stock_list) or (
@@ -333,12 +343,12 @@ class BatchScheduler(BaseManager):
             ):
                 # 委托给数据处理引擎更新股票信息
                 self.processing_engine._update_stock_info(stock_list)
-                logger.info(f"股票列表更新完成，数量: {len(stock_list)}")
+                logger.info(f"stock list update completed , count : {len(stock_list)}")
             else:
-                logger.warning("未获取到股票列表")
+                logger.warning("failed to retrieve stock list")
 
         except Exception as e:
-            logger.error(f"更新股票列表失败: {e}")
+            logger.error(f"update stock list failed : {e}")
 
     def _update_trading_calendar(self, target_date: date):
         """更新交易日历"""
@@ -370,10 +380,12 @@ class BatchScheduler(BaseManager):
                     )
 
                 self.db_manager.executemany(sql, data_to_insert)
-                logger.info(f"交易日历更新完成，交易日数量: {len(data_to_insert)}")
+                logger.info(
+                    f"trading calendar update completed , trading day count : {len(data_to_insert)}"
+                )
 
         except Exception as e:
-            logger.error(f"更新交易日历失败: {e}")
+            logger.error(f"updating trading calendar failed : {e}")
 
     def _is_trading_day(self, target_date: date) -> bool:
         """检查是否为交易日"""
@@ -388,7 +400,7 @@ class BatchScheduler(BaseManager):
             return result is not None
 
         except Exception as e:
-            logger.error(f"检查交易日失败: {e}")
+            logger.error(f"check trading day failed : {e}")
             # 不再使用简化fallback，必须有正确的交易日历数据
             raise RuntimeError(f"无法获取交易日历数据，请确保交易日历已正确初始化: {e}")
 
@@ -423,7 +435,7 @@ class BatchScheduler(BaseManager):
             )
 
         except Exception as e:
-            logger.error(f"更新同步状态失败: {e}")
+            logger.error(f"failed to update synchronization status : {e}")
 
     def get_scheduler_status(self) -> Dict[str, Any]:
         """获取调度器状态"""

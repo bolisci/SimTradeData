@@ -270,9 +270,13 @@ class SyncManager(BaseManager):
                 symbols = self._get_active_stocks_from_db()
                 if not symbols:
                     # 如果数据库中没有股票，不能进行断点续传，执行完整流程
-                    self.logger.info("数据库中没有股票，无法进行断点续传检查")
+                    self.logger.info(
+                        "database in no stock , unable to perform resume from breakpoint check"
+                    )
                 else:
-                    self.logger.info(f"获取到{len(symbols)}只活跃股票用于断点续传检查")
+                    self.logger.info(
+                        f"retrieved {len(symbols)}active stocks for resume from breakpoint check"
+                    )
 
             # 如果有股票列表，检查断点续传条件
             if symbols:
@@ -285,7 +289,7 @@ class SyncManager(BaseManager):
 
                 if completed_count > 0:  # 如果有已完成记录，执行断点续传
                     self.logger.info(
-                        f"🔄 检测到断点续传: 发现{completed_count}个已完成记录"
+                        f"🔄 resume from breakpoint detected : found {completed_count}completed records"
                     )
 
                     # 重新计算需要处理的股票（基于正确的symbols列表）
@@ -297,7 +301,7 @@ class SyncManager(BaseManager):
                     # 这样可以确保历史回填等功能正常运行
                     if len(extended_symbols_to_process) == 0:
                         self.logger.info(
-                            "🎉 检测到扩展数据已完成，将跳过阶段2扩展数据同步"
+                            "🎉 extended data completion detected , will skipping stage 2 extended data synchronization"
                         )
 
                     # 如果有未完成的扩展数据,记录断点续传状态
@@ -310,13 +314,15 @@ class SyncManager(BaseManager):
                             else 0
                         )
                         self.logger.info(
-                            f"📊 断点续传: 扩展数据已完成{completion_rate:.1%}，剩余{remaining_stocks}只需处理"
+                            f"📊 resume from breakpoint : extended data already completed {completion_rate:.1%}, remaining {remaining_stocks} need processing"
                         )
                 else:
-                    self.logger.info("🆕 未检测到扩展数据记录，执行完整同步流程")
+                    self.logger.info(
+                        "🆕 no extended data records detected , execute full synchronization process"
+                    )
 
             # 如果是全新同步或完成度很低，执行完整流程
-            self.logger.info("🚀 执行完整同步流程")
+            self.logger.info("🚀 execute full synchronization process")
 
             # 阶段0: 更新基础数据（交易日历和股票列表）
             log_phase_start("阶段0", "更新基础数据")
@@ -355,7 +361,7 @@ class SyncManager(BaseManager):
                         full_result["summary"]["failed_phases"] += 1
                         # 股票列表更新失败时,尝试使用数据库中的现有股票
                         self.logger.info(
-                            "⚠️  股票列表更新失败,尝试使用数据库中的现有股票"
+                            "⚠️ stock list update failed , attempting use database in performance have stock"
                         )
                         symbols = self._get_active_stocks_from_db()
 
@@ -418,7 +424,9 @@ class SyncManager(BaseManager):
                         "数据库中没有活跃股票，无法执行同步。请先确保股票列表更新成功"
                     )
                 else:
-                    self.logger.info(f"从数据库获取活跃股票: {len(symbols)}只股票")
+                    self.logger.info(
+                        f"retrieve from database active stocks : {len(symbols)} stocks"
+                    )
 
             # 阶段1: 增量同步（市场数据）
             log_phase_start("阶段1", "增量同步市场数据")
@@ -475,12 +483,14 @@ class SyncManager(BaseManager):
             )
 
             self.logger.info(
-                f"📊 扩展数据同步: 总股票 {len(symbols)}只, 需处理 {len(extended_symbols_to_process)}只"
+                f"📊 extended data synchronization : 总 stock {len(symbols)}, need processing {len(extended_symbols_to_process)}"
             )
 
             # 如果没有股票需要处理，直接跳过
             if len(extended_symbols_to_process) == 0:
-                self.logger.info("✅ 所有股票的扩展数据已完成，跳过扩展数据同步")
+                self.logger.info(
+                    "✅ all stocks extended data completed , skip extended data synchronization"
+                )
                 full_result["phases"]["extended_data_sync"] = {
                     "status": "skipped",
                     "result": {"message": "所有数据已完整，无需处理"},
@@ -491,7 +501,7 @@ class SyncManager(BaseManager):
                 # 处理所有需要的股票，不设限制
                 actual_symbols_to_process = extended_symbols_to_process
                 self.logger.info(
-                    f"🎯 开始处理全部 {len(extended_symbols_to_process)} 只需要处理的股票"
+                    f"🎯 starting processing all {len(extended_symbols_to_process)} need processing stock"
                 )
 
                 # 使用所有需要处理的股票数量作为进度条基准
@@ -744,7 +754,7 @@ class SyncManager(BaseManager):
                 },
             }
         except Exception as e:
-            self.logger.error(f"获取同步状态失败: {e}")
+            self.logger.error(f"retrieving synchronization status failed : {e}")
             return {"success": False, "error": str(e)}
 
     def _get_active_stocks_from_db(self) -> List[str]:
@@ -760,7 +770,9 @@ class SyncManager(BaseManager):
         获取需要处理扩展数据的股票列表（智能断点续传版本）
         """
         try:
-            self.logger.info("📊 检查扩展数据完整性（智能断点续传）...")
+            self.logger.info(
+                "📊 check extended data completeness ( smart resume from breakpoint ) ..."
+            )
 
             if not symbols:
                 return []
@@ -777,7 +789,9 @@ class SyncManager(BaseManager):
             )
             cleanup_count = cursor.rowcount
             if cleanup_count > 0:
-                self.logger.debug(f"清理了 {cleanup_count} 条过期 pending 状态记录")
+                self.logger.debug(
+                    f"cleaning {cleanup_count} records expired pending status records"
+                )
 
             # 智能数据完整性检查：使用灵活的日期范围
             # 财务数据：检查最近2年的年报数据
@@ -880,7 +894,7 @@ class SyncManager(BaseManager):
                     repaired_symbols.append(symbol)
                     stats["status_repaired"] += 1
                     self.logger.debug(
-                        f"🔧 修复状态: {symbol} completed -> {actual_status} (财务:{has_financial}, 估值:{has_valuation})"
+                        f"🔧 repairing status : {symbol} completed -> {actual_status} ( financial :{has_financial}, valuation :{has_valuation})"
                     )
 
                 # 需要处理的条件：实际状态既不是完成也不是部分完成
@@ -891,7 +905,7 @@ class SyncManager(BaseManager):
 
             # 输出智能统计信息
             self.logger.info(
-                f"📊 智能数据完整性检查: "
+                f"📊 智能 data completeness check :"
                 f"总计{stats['total_checked']}, "
                 f"已完成{stats['completed']}, "
                 f"部分完成{stats['partial']}, "
@@ -902,7 +916,7 @@ class SyncManager(BaseManager):
 
             if repaired_symbols:
                 self.logger.info(
-                    f"🔧 状态修复: {len(repaired_symbols)} 个股票状态已修复"
+                    f"🔧 status repairing : {len(repaired_symbols)} stock status already repairing"
                 )
 
             if symbols_needing_processing:
@@ -913,20 +927,24 @@ class SyncManager(BaseManager):
                     else 0
                 )
                 self.logger.info(
-                    f"📋 断点续传: 总进度 {completion_rate:.1%}, 剩余处理 {len(symbols_needing_processing)} 只股票"
+                    f"📋 resume from breakpoint : 总进度 {completion_rate:.1%}, remaining processing {len(symbols_needing_processing)} stocks"
                 )
             else:
-                self.logger.info("✅ 所有股票的扩展数据已完整，无需处理")
+                self.logger.info(
+                    "✅ all stocks extended data complete , no need processing"
+                )
 
             return symbols_needing_processing
 
         except Exception as e:
-            self.logger.error(f"检查扩展数据完整性失败: {e}")
+            self.logger.error(f"check extended data completeness failed : {e}")
             raise
 
     def _update_trading_calendar(self, target_date: date) -> Dict[str, Any]:
         """增量更新交易日历"""
-        self.logger.info(f"🔄 开始交易日历增量更新，目标日期: {target_date}")
+        self.logger.info(
+            f"🔄 starting trading calendar incremental updating , target date : {target_date}"
+        )
 
         # 检查现有数据范围
         existing_range = self.db_manager.fetchone(
@@ -963,7 +981,7 @@ class SyncManager(BaseManager):
                     "total_records": existing_range["count"],
                 }
 
-        self.logger.info(f"需要更新年份: {years_to_update}")
+        self.logger.info(f"need updating years : {years_to_update}")
         total_inserted = 0
 
         # 获取并插入数据
@@ -976,7 +994,7 @@ class SyncManager(BaseManager):
             )
 
             self.logger.debug(
-                f"获取到交易日历原始数据: {type(calendar_data)}, 内容: {calendar_data}"
+                f"retrieved trading calendar raw data : {type(calendar_data)}, content : {calendar_data}"
             )
 
             # 处理嵌套格式
@@ -994,14 +1012,14 @@ class SyncManager(BaseManager):
                             calendar_data = calendar_data["data"]
                 else:
                     self.logger.warning(
-                        f"交易日历获取失败: {calendar_data.get('message', '未知错误')}"
+                        f"trading calendar retrieving failed : {calendar_data.get('message', ' unknown error ')}"
                     )
                     continue
             elif isinstance(calendar_data, dict) and "data" in calendar_data:
                 calendar_data = calendar_data["data"]
 
             self.logger.debug(
-                f"处理后交易日历数据: {type(calendar_data)}, 长度: {len(calendar_data) if isinstance(calendar_data, list) else 'N/A'}"
+                f"processing 后 trading calendar data : {type(calendar_data)}, 长度: {len(calendar_data) if isinstance(calendar_data, list) else 'N/A'}"
             )
 
             if not calendar_data or not isinstance(calendar_data, list):
@@ -1055,7 +1073,9 @@ class SyncManager(BaseManager):
         if target_date is None:
             target_date = datetime.now().date()
 
-        self.logger.info("🔄 开始股票列表增量更新（优化版本）...")
+        self.logger.info(
+            "🔄 starting stock list incremental update (optimized version ) ..."
+        )
 
         try:
             # 增量策略：检查是否需要更新
@@ -1081,7 +1101,7 @@ class SyncManager(BaseManager):
                     and stock_count["count"] > 3000
                 ):
                     self.logger.info(
-                        f"✅ 股票列表今日已更新，共 {stock_count['count']} 只股票，跳过更新"
+                        f"✅ stock list 今日 already updating , total {stock_count['count']} stocks , skipping updating"
                     )
                     return {
                         "status": "skipped",
@@ -1098,7 +1118,7 @@ class SyncManager(BaseManager):
                     and stock_count["count"] > 1000
                 ):
                     self.logger.info(
-                        f"✅ 股票列表最近已更新（{last_update_date}），共 {stock_count['count']} 只股票，跳过更新以提高性能"
+                        f"✅ stock list recent already updating ({last_update_date}) , total {stock_count['count']} stocks , skipping updating to 提高 performance"
                     )
                     return {
                         "status": "skipped",
@@ -1111,7 +1131,9 @@ class SyncManager(BaseManager):
 
             # 获取股票信息 - 使用目标日期的股票列表（避免幸存者偏差）
             # BaoStock支持指定日期查询，确保获取目标日期的股票列表
-            self.logger.info(f"🔄 开始获取股票信息（目标日期: {target_date}）...")
+            self.logger.info(
+                f"🔄 starting retrieving stock info (target date : {target_date}) ..."
+            )
 
             # 直接调用BaoStock适配器，传递target_date参数
             baostock_source = self.data_source_manager.get_source("baostock")
@@ -1128,7 +1150,9 @@ class SyncManager(BaseManager):
 
             # BaoStock直接返回列表，验证数据格式
             if not isinstance(stock_info, list):
-                self.logger.error(f"BaoStock返回格式错误: {type(stock_info)}")
+                self.logger.error(
+                    f"BaoStock returned format error : {type(stock_info)}"
+                )
                 return {
                     "status": "failed",
                     "error": f"BaoStock返回格式错误: {type(stock_info)}",
@@ -1138,7 +1162,7 @@ class SyncManager(BaseManager):
                 }
 
             if not stock_info:
-                self.logger.warning("BaoStock返回空列表")
+                self.logger.warning("BaoStock returned empty list")
                 return {
                     "status": "failed",
                     "error": "获取股票列表失败：BaoStock返回空列表",
@@ -1147,7 +1171,7 @@ class SyncManager(BaseManager):
                     "updated_stocks": 0,
                 }
 
-            self.logger.info(f"✅ 从BaoStock获取 {len(stock_info)} 只股票")
+            self.logger.info(f"✅ retrieving from BaoStock {len(stock_info)} stocks")
 
             # 批量处理股票数据 - 性能优化
             new_stocks = 0
@@ -1163,7 +1187,7 @@ class SyncManager(BaseManager):
                     if not isinstance(stock_data, dict):
                         if i < 5:  # 只记录前5个错误
                             self.logger.warning(
-                                f"第{i}个股票数据不是字典: 类型={type(stock_data)}, 内容={stock_data}"
+                                f"No. {i}stock data not is dict : type ={type(stock_data)}, content ={stock_data}"
                             )
                         failed_stocks += 1
                         continue
@@ -1204,7 +1228,9 @@ class SyncManager(BaseManager):
                             is_index = True
 
                         if is_index:
-                            self.logger.debug(f"跳过指数代码: {symbol} ({name})")
+                            self.logger.debug(
+                                f"skipping index code : {symbol} ({name})"
+                            )
                             continue
 
                     processed_stocks.append(
@@ -1213,11 +1239,11 @@ class SyncManager(BaseManager):
 
                 except Exception as e:
                     if failed_stocks < 5:  # 只记录前5个错误，避免日志过多
-                        self.logger.error(f"预处理第{i}个股票数据失败: {e}")
+                        self.logger.error(f"preprocess No. {i}stock data failed : {e}")
                     failed_stocks += 1
 
             if not processed_stocks:
-                self.logger.warning("没有有效的股票数据需要处理")
+                self.logger.warning("no valid stock data need processing")
                 return {
                     "status": "completed",
                     "total_stocks": 0,
@@ -1237,9 +1263,11 @@ class SyncManager(BaseManager):
                     tuple(symbol_list),
                 )
                 existing_symbols = {row["symbol"] for row in existing_result}
-                self.logger.debug(f"数据库中已存在 {len(existing_symbols)} 只股票")
+                self.logger.debug(
+                    f"database in already exists {len(existing_symbols)} stocks"
+                )
             except Exception as e:
-                self.logger.warning(f"批量查询已存在股票失败: {e}")
+                self.logger.warning(f"batch query already exists stock failed : {e}")
                 # 回退到逐一处理
                 existing_symbols = set()
 
@@ -1269,9 +1297,9 @@ class SyncManager(BaseManager):
                         update_stock_batch,
                     )
                     updated_stocks = len(update_stock_batch)
-                    self.logger.debug(f"批量更新 {updated_stocks} 只股票")
+                    self.logger.debug(f"batch update {updated_stocks} stocks")
                 except Exception as e:
-                    self.logger.warning(f"批量更新股票失败: {e}")
+                    self.logger.warning(f"batch update stock failed : {e}")
                     # 逐一更新
                     for name, symbol in update_stock_batch:
                         try:
@@ -1281,7 +1309,9 @@ class SyncManager(BaseManager):
                             )
                             updated_stocks += 1
                         except Exception as e2:
-                            self.logger.warning(f"更新股票 {symbol} 失败: {e2}")
+                            self.logger.warning(
+                                f"update new stock {symbol} failed : {e2}"
+                            )
                             failed_stocks += 1
 
             # 批量插入新股票
@@ -1295,17 +1325,19 @@ class SyncManager(BaseManager):
                         [(row[0], row[1], row[2], row[4]) for row in new_stock_batch],
                     )
                     new_stocks = len(new_stock_batch)
-                    self.logger.debug(f"批量插入 {new_stocks} 只新股票")
+                    self.logger.debug(f"batch insert {new_stocks} new stock")
 
                     # 为所有新股票获取详细信息
                     for symbol, _, _, _, _ in new_stock_batch:
                         try:
                             self._fetch_detailed_stock_info(symbol)
                         except Exception as e:
-                            self.logger.debug(f"获取 {symbol} 详细信息失败: {e}")
+                            self.logger.debug(
+                                f"retrieving {symbol} detailed info failed : {e}"
+                            )
 
                 except Exception as e:
-                    self.logger.warning(f"批量插入新股票失败: {e}")
+                    self.logger.warning(f"batch insert new stock failed : {e}")
                     # 回退到逐一插入
                     for stock_data in new_stock_batch:
                         try:
@@ -1323,13 +1355,15 @@ class SyncManager(BaseManager):
                             )
                             new_stocks += 1
                         except Exception as e2:
-                            self.logger.warning(f"插入股票 {stock_data[0]} 失败: {e2}")
+                            self.logger.warning(
+                                f"insert stock {stock_data[0]} failed : {e2}"
+                            )
                             failed_stocks += 1
 
             total_processed = new_stocks + updated_stocks
 
             self.logger.info(
-                f"股票列表更新完成: 新增 {new_stocks}只, 更新 {updated_stocks}只, 失败 {failed_stocks}只"
+                f"stock list update completed : 新增 {new_stocks}, updating {updated_stocks}, failed {failed_stocks}"
             )
 
             return {
@@ -1341,7 +1375,7 @@ class SyncManager(BaseManager):
             }
 
         except Exception as e:
-            self.logger.error(f"更新股票列表失败: {e}")
+            self.logger.error(f"update stock list failed : {e}")
             return {
                 "status": "failed",
                 "error": str(e),
@@ -1403,7 +1437,7 @@ class SyncManager(BaseManager):
         """清理缓存"""
         if hasattr(self, "_market_cache"):
             self._market_cache.clear()
-        self.logger.debug("缓存已清理")
+        self.logger.debug("cache already cleaned")
 
     def get_cache_stats(self) -> Dict[str, int]:
         """获取缓存统计信息"""
@@ -1419,7 +1453,7 @@ class SyncManager(BaseManager):
 
             if not response or not isinstance(response, dict):
                 self.logger.warning(
-                    f"获取股票详细信息失败: {symbol} - 响应为空或格式错误"
+                    f"retrieving stock detailed info failed : {symbol} - 响应 is empty 或 format error"
                 )
                 return
 
@@ -1433,7 +1467,9 @@ class SyncManager(BaseManager):
                 detail_info = extract_data_safely(detail_info)
 
             if not detail_info or not isinstance(detail_info, dict):
-                self.logger.warning(f"获取股票详细信息失败: {symbol} - 解包后数据为空")
+                self.logger.warning(
+                    f"retrieving stock detailed info failed : {symbol} - data is empty after unpack"
+                )
                 return
 
             # 提取字段信息（适配不同数据源的字段名）
@@ -1448,7 +1484,7 @@ class SyncManager(BaseManager):
             industry_l2 = detail_info.get("industry_l2", "")
 
             self.logger.debug(
-                f"提取到股票信息: {symbol} - list_date={list_date}, industry_l1={industry_l1}, industry_l2={industry_l2}"
+                f"提取 to stock info : {symbol} - list_date={list_date}, industry_l1={industry_l1}, industry_l2={industry_l2}"
             )
 
             # 只要有任何一个有效字段就更新（修复条件判断）
@@ -1477,13 +1513,13 @@ class SyncManager(BaseManager):
                         symbol,
                     ),
                 )
-                self.logger.info(f"✅ 更新股票详细信息: {symbol}")
+                self.logger.info(f"✅ update new stock detailed info : {symbol}")
             else:
-                self.logger.warning(f"⚠️  股票详细信息为空: {symbol}")
+                self.logger.warning(f"⚠️ stock detailed info is empty : {symbol}")
 
         except Exception as e:
-            self.logger.error(f"获取 {symbol} 详细信息失败: {e}")
-            self.logger.debug(f"详细错误信息: {symbol}", exc_info=True)
+            self.logger.error(f"retrieving {symbol} detailed info failed : {e}")
+            self.logger.debug(f"detailed error info : {symbol}", exc_info=True)
 
     def _safe_extract_number(
         self, value: Any, default: Optional[float] = None
@@ -1504,12 +1540,16 @@ class SyncManager(BaseManager):
 
         # 处理字典类型（错误情况）
         if isinstance(value, dict):
-            self.logger.debug(f"财务数据包含字典类型: {value}，使用默认值")
+            self.logger.debug(
+                f"financial data contains dict type : {value}, using default value"
+            )
             return default
 
         # 处理列表类型（错误情况）
         if isinstance(value, (list, tuple)):
-            self.logger.debug(f"财务数据包含列表类型: {value}，使用默认值")
+            self.logger.debug(
+                f"financial data contains list type : {value}, using default value"
+            )
             return default
 
         try:
@@ -1536,7 +1576,7 @@ class SyncManager(BaseManager):
             return number * multiplier
 
         except (ValueError, TypeError) as e:
-            self.logger.debug(f"数字转换失败: {value} -> {e}")
+            self.logger.debug(f"number converting failed : {value} -> {e}")
             return default
 
     def _safe_extract_date(
@@ -1581,11 +1621,11 @@ class SyncManager(BaseManager):
                     except ValueError:
                         continue
 
-            self.logger.debug(f"无法解析日期格式: {value}")
+            self.logger.debug(f"unable to parse date format : {value}")
             return default
 
         except (ValueError, TypeError) as e:
-            self.logger.debug(f"日期转换失败: {value} -> {e}")
+            self.logger.debug(f"date converting failed : {value} -> {e}")
             return default
 
     def _sync_extended_data(
@@ -1599,7 +1639,9 @@ class SyncManager(BaseManager):
         - 估值数据：逐个获取（数据源不支持批量API）
         """
         session_id = str(uuid.uuid4())
-        self.logger.info(f"🔄 开始扩展数据同步: {len(symbols)}只股票")
+        self.logger.info(
+            f"🔄 starting extended data synchronization : {len(symbols)} stocks"
+        )
 
         result = {
             "financials_count": 0,
@@ -1612,12 +1654,12 @@ class SyncManager(BaseManager):
         }
 
         if not symbols:
-            self.logger.info("✅ 没有股票需要处理")
+            self.logger.info("✅ no stock need processing")
             if progress_bar:
                 progress_bar.update(0)
             return result
 
-        self.logger.info(f"📊 开始处理: {len(symbols)}只股票")
+        self.logger.info(f"📊 starting processing : {len(symbols)} stocks")
 
         # 🚀 优化1: 批量导入财务数据
         # 批量模式判断: 基于数据库总股票数，而不是待处理股票数
@@ -1646,7 +1688,7 @@ class SyncManager(BaseManager):
             "; ".join(decision_reason) if decision_reason else "未达到批量阈值"
         )
         self.logger.info(
-            f"批量模式决策: 总库存{total_stocks}, 待处理{len(symbols)}, "
+            f"批量 mode decision : total inventory {total_stocks}, pending {len(symbols)},"
             f"{'✅启用' if should_use_batch else '⛔禁用'} ({reason_text})"
         )
 
@@ -1654,7 +1696,7 @@ class SyncManager(BaseManager):
 
         if should_use_batch:
             self.logger.info(
-                f"⚡ 批量模式：开始批量财务数据导入（{len(symbols)}只股票）"
+                f"⚡ 批量 mode : starting 批量 financial data importing ({len(symbols)} stocks )"
             )
             result["batch_mode"] = True
 
@@ -1665,16 +1707,20 @@ class SyncManager(BaseManager):
 
                 # 批量导入所有股票的财务数据
                 print(f"开始批量导入财务数据: {report_date_str}", flush=True)
-                self.logger.info(f"开始批量导入财务数据: {report_date_str}")
+                self.logger.info(
+                    f"starting batch importing financial data : {report_date_str}"
+                )
                 batch_result = self.data_source_manager.batch_import_financial_data(
                     report_date_str, "Q4"
                 )
 
                 # 检查batch_result是否为字典类型
-                self.logger.debug(f"批量导入返回类型: {type(batch_result)}")
+                self.logger.debug(f"batch import returned type : {type(batch_result)}")
 
                 if not isinstance(batch_result, dict):
-                    self.logger.warning(f"批量导入返回非字典类型: {type(batch_result)}")
+                    self.logger.warning(
+                        f"batch import returned non-dict type : {type(batch_result)}"
+                    )
                     result["batch_mode"] = False
                 elif batch_result.get("success") and batch_result.get("data"):
                     # 解包嵌套的数据结构（@unified_error_handler 导致的双重包装）
@@ -1684,19 +1730,19 @@ class SyncManager(BaseManager):
                         # 双重嵌套: {'data': {'data': [...]}}
                         actual_records = inner_data["data"]
                         self.logger.debug(
-                            f"解包双重嵌套数据结构，获取到 {len(actual_records) if isinstance(actual_records, list) else 0} 条记录"
+                            f"unpack double nested data structure , retrieved {len(actual_records) if isinstance(actual_records, list) else 0} records records"
                         )
                     else:
                         # 单层嵌套: {'data': [...]}
                         actual_records = inner_data
                         self.logger.debug(
-                            f"使用单层数据结构，获取到 {len(actual_records) if isinstance(actual_records, list) else 0} 条记录"
+                            f"use single-layer data structure , retrieved {len(actual_records) if isinstance(actual_records, list) else 0} records records"
                         )
 
                     # 验证实际记录是否为列表
                     if not isinstance(actual_records, list):
                         self.logger.warning(
-                            f"批量导入数据格式错误: actual_records不是列表，类型为{type(actual_records)}"
+                            f"batch import data format error : actual_records not is list , type is {type(actual_records)}"
                         )
                         result["batch_mode"] = False
                     else:
@@ -1709,13 +1755,13 @@ class SyncManager(BaseManager):
                             has_mapper = True
                         except ImportError:
                             self.logger.warning(
-                                "未找到mootdx字段映射模块，使用原始数据"
+                                "not found mootdx field mapping module , using raw data"
                             )
                             has_mapper = False
 
                         # 构建symbol -> data映射
                         self.logger.debug(
-                            f"开始构建财务数据映射，symbols数量: {len(symbols)}, records数量: {len(actual_records)}"
+                            f"starting building financial data 映射, symbols count : {len(symbols)}, records count : {len(actual_records)}"
                         )
 
                         # 构建财务数据映射
@@ -1730,7 +1776,7 @@ class SyncManager(BaseManager):
                                         mapped_data = map_financial_data(raw_data)
                                     except Exception as e:
                                         self.logger.warning(
-                                            f"字段映射失败 {symbol}: {e}，使用原始数据"
+                                            f"field mapping failed {symbol}: {e}, using raw data"
                                         )
                                         mapped_data = raw_data
                                 else:
@@ -1743,7 +1789,7 @@ class SyncManager(BaseManager):
                                 }
 
                         self.logger.info(
-                            f"✅ 批量导入完成: 获取到 {len(financial_data_map)} 只股票的财务数据"
+                            f"✅ batch import completed : retrieved {len(financial_data_map)} stocks financial data"
                         )
                         print(
                             f"✅ 批量导入完成: 获取到 {len(financial_data_map)} 只股票的财务数据",
@@ -1751,28 +1797,32 @@ class SyncManager(BaseManager):
                         )
                 else:
                     self.logger.info(
-                        "⚠️  批量导入失败：未获取到有效数据，将回退到逐个查询模式"
+                        "⚠️ batch import failed : not retrieved valid data , will fallback to sequential query mode"
                     )
                     print(f"⚠️  批量导入失败，将回退到逐个查询模式", flush=True)
                     result["batch_mode"] = False
 
             except Exception as e:
-                self.logger.error(f"批量导入财务数据异常: {e}")
+                self.logger.error(f"batch financial data import exception : {e}")
                 print(f"❌ 批量导入财务数据失败: {e}", flush=True)
-                self.logger.info("⚠️  批量导入异常，将回退到逐个查询模式")
+                self.logger.info(
+                    "⚠️ batch import exception , will fallback to sequential query mode"
+                )
                 result["batch_mode"] = False
 
         # 处理每只股票的扩展数据
         batch_mode_enabled = result.get("batch_mode", False)
         if batch_mode_enabled:
             self.logger.info(
-                f"🚀 开始处理 {len(symbols)} 只股票（批量模式：使用预加载的财务数据）"
+                f"🚀 starting processing {len(symbols)} stocks (批量 mode : use preload financial data )"
             )
         else:
-            self.logger.info(f"🚀 开始处理 {len(symbols)} 只股票（逐个模式）")
+            self.logger.info(
+                f"🚀 starting processing {len(symbols)} stocks (sequential mode )"
+            )
 
         for i, symbol in enumerate(symbols):
-            self.logger.debug(f"处理 {symbol} ({i+1}/{len(symbols)})")
+            self.logger.debug(f"processing {symbol} ({i+1}/{len(symbols)})")
 
             try:
                 # 如果批量模式成功，传入预加载的财务数据
@@ -1800,8 +1850,10 @@ class SyncManager(BaseManager):
                 result["processed_symbols"] += 1
 
             except Exception as e:
-                self.logger.error(f"同步股票失败: {symbol} - {e}")
-                self.logger.debug(f"同步股票详细错误: {symbol}", exc_info=True)
+                self.logger.error(f"synchronization stock failed : {symbol} - {e}")
+                self.logger.debug(
+                    f"synchronization stock detailed error : {symbol}", exc_info=True
+                )
                 result["failed_symbols"] += 1
                 result["processed_symbols"] += 1
 
@@ -1846,14 +1898,14 @@ class SyncManager(BaseManager):
                         if ipo_date > target_date:
                             # 股票尚未上市，这是预期情况
                             self.logger.info(
-                                f"股票尚未上市: {symbol} (上市日期: {ipo_date_str}, 目标日期: {target_date})"
+                                f"stock not listed yet : {symbol} ( listing date : {ipo_date_str}, target date : {target_date})"
                             )
                             return
                         else:
                             # 股票已上市但数据获取失败，这可能是数据源问题或股票状态异常
                             failure_detail = ", ".join(failure_reasons)
                             self.logger.debug(
-                                f"数据获取失败: {symbol} ({failure_detail}) - 股票已上市但无可用数据"
+                                f"data retrieving failed : {symbol} ({failure_detail}) - stock listed but no available data"
                             )
                             return
                     except (ValueError, TypeError):
@@ -1862,13 +1914,13 @@ class SyncManager(BaseManager):
 
             # 无法获取IPO信息或格式异常，按一般数据获取失败处理
             failure_detail = ", ".join(failure_reasons)
-            self.logger.warning(f"数据获取失败: {symbol} ({failure_detail})")
+            self.logger.warning(f"data retrieving failed : {symbol} ({failure_detail})")
 
         except Exception as e:
             # 获取股票信息时发生异常，记录详细错误
             failure_detail = ", ".join(failure_reasons)
-            self.logger.warning(f"数据获取失败: {symbol} ({failure_detail})")
-            self.logger.debug(f"股票信息检查异常: {symbol} - {e}")
+            self.logger.warning(f"data retrieving failed : {symbol} ({failure_detail})")
+            self.logger.debug(f"stock info check exception : {symbol} - {e}")
 
     def _sync_single_symbol_with_transaction(
         self,
@@ -1900,7 +1952,7 @@ class SyncManager(BaseManager):
         )
 
         if existing_status:
-            self.logger.debug(f"⏭️ 跳过已完成的股票: {symbol}")
+            self.logger.debug(f"⏭️ skipping already completed stock : {symbol}")
             result["success"] = True
             return result
 
@@ -1926,12 +1978,14 @@ class SyncManager(BaseManager):
                     try:
                         # 🚀 优化: 优先使用预加载的财务数据（批量模式）
                         if preloaded_financial and preloaded_financial.get("data"):
-                            self.logger.debug(f"使用预加载的财务数据: {symbol}")
+                            self.logger.debug(f"use preload financial data : {symbol}")
                             financial_data = preloaded_financial["data"]
                             data_source = "mootdx_batch"  # 标记为批量导入
                         else:
                             # 回退: 逐个查询（单股模式或批量失败时）
-                            self.logger.debug(f"逐个查询财务数据: {symbol}")
+                            self.logger.debug(
+                                f"sequential query financial data : {symbol}"
+                            )
                             financial_result = (
                                 self.data_source_manager.get_fundamentals(
                                     symbol, report_date_str, "Q4"
@@ -1970,15 +2024,19 @@ class SyncManager(BaseManager):
                             result["financials_count"] += 1
                             financial_success = True
                             self.logger.debug(
-                                f"{data_source}财务数据插入成功: {symbol}"
+                                f"{data_source} financial data insert succeeded : {symbol}"
                             )
                         else:
-                            self.logger.debug(f"财务数据无效: {symbol}")
+                            self.logger.debug(f"financial data invalid : {symbol}")
 
                     except Exception as e:
-                        self.logger.warning(f"获取财务数据失败: {symbol} - {e}")
+                        self.logger.warning(
+                            f"failed to retrieve financial data : {symbol} - {e}"
+                        )
                 else:
-                    self.logger.warning(f"跳过无效报告期: {symbol} {report_date_str}")
+                    self.logger.warning(
+                        f"skipping invalid report period : {symbol} {report_date_str}"
+                    )
 
                 # 处理估值数据
                 try:
@@ -2024,19 +2082,23 @@ class SyncManager(BaseManager):
                                 ),
                             )
                             self.logger.debug(
-                                f"{data_source}估值数据插入成功: {symbol}"
+                                f"{data_source} valuation data insert succeeded : {symbol}"
                             )
                         else:
-                            self.logger.debug(f"估值数据已存在，跳过插入: {symbol}")
+                            self.logger.debug(
+                                f"valuation data already exists , skipping insert : {symbol}"
+                            )
 
                         # 无论是新插入还是已存在，都标记为成功并计数
                         result["valuations_count"] += 1
                         valuation_success = True
                     else:
-                        self.logger.debug(f"估值数据无效: {symbol}")
+                        self.logger.debug(f"valuation data invalid : {symbol}")
 
                 except Exception as e:
-                    self.logger.warning(f"获取估值数据失败: {symbol} - {e}")
+                    self.logger.warning(
+                        f"failed to retrieve valuation data : {symbol} - {e}"
+                    )
 
                 # 处理技术指标（暂时跳过，标记为成功）
 
@@ -2047,12 +2109,14 @@ class SyncManager(BaseManager):
                     final_status = "completed"  # 有财务数据就算完成
                     result["success"] = True
                     self.logger.debug(
-                        f"数据获取成功: {symbol} (财务:{financial_success}, 估值:{valuation_success})"
+                        f"data retrieval succeeded : {symbol} ( financial :{financial_success}, valuation :{valuation_success})"
                     )
                 elif valuation_success:
                     final_status = "partial"  # 只有估值数据算部分完成
                     result["success"] = True
-                    self.logger.debug(f"部分数据获取成功: {symbol} (仅估值数据)")
+                    self.logger.debug(
+                        f"partial data retrieval succeeded : {symbol} ( valuation data only )"
+                    )
                 else:
                     final_status = "failed"
                     result["success"] = False
@@ -2086,13 +2150,13 @@ class SyncManager(BaseManager):
 
         except Exception as e:
             # 事务将由上下文管理器自动回滚
-            self.logger.error(f"同步股票失败: {symbol} - {e}")
+            self.logger.error(f"synchronization stock failed : {symbol} - {e}")
             result["success"] = False
             return result
 
     def _auto_fix_gaps(self, gap_result: Dict[str, Any]) -> Dict[str, Any]:
         """自动修复缺口"""
-        self.logger.info("开始自动修复缺口")
+        self.logger.info("starting automatic repairing gap")
 
         fix_result = {
             "total_gaps": gap_result["summary"]["total_gaps"],
@@ -2108,7 +2172,7 @@ class SyncManager(BaseManager):
             all_gaps.extend(freq_data.get("gaps", []))
 
         if not all_gaps:
-            self.logger.info("没有发现缺口，无需修复")
+            self.logger.info("no found gaps , no need to repair")
             return fix_result
 
         # 限制修复数量，优先修复重要股票的缺口
@@ -2133,7 +2197,9 @@ class SyncManager(BaseManager):
             )
 
             if not stock_info:
-                self.logger.debug(f"跳过修复: {symbol} - 股票信息不存在")
+                self.logger.debug(
+                    f"skipping repairing : {symbol} - stock info not exist"
+                )
                 continue
 
             # 检查缺口是否在股票上市日期之后
@@ -2145,13 +2211,15 @@ class SyncManager(BaseManager):
 
                 if gap_start_date < list_date:
                     fix_result["skipped_fixes"] += 1
-                    self.logger.debug(f"跳过修复: {symbol} 缺口日期早于上市日期")
+                    self.logger.debug(
+                        f"skipping repairing : {symbol} gap date earlier than listing date"
+                    )
                     continue
 
             fix_result["attempted_fixes"] += 1
             fixes_attempted += 1
 
-            self.logger.info(f"修复缺口: {symbol} {gap_start} 到 {gap_end}")
+            self.logger.info(f"repairing gap : {symbol} {gap_start} to {gap_end}")
 
             # 获取数据填补缺口
             daily_data = self.data_source_manager.get_daily_data(
@@ -2178,22 +2246,26 @@ class SyncManager(BaseManager):
                     if records_inserted > 0:
                         fix_result["successful_fixes"] += 1
                         self.logger.info(
-                            f"缺口修复成功: {symbol} 插入{records_inserted}条记录"
+                            f"gap successful fixes : {symbol} insert {records_inserted} records records"
                         )
                     else:
                         fix_result["failed_fixes"] += 1
                         self.logger.warning(
-                            f"缺口修复失败: {symbol} 处理引擎未插入数据"
+                            f"gap repairing failed : {symbol} processing 引擎 not insert data"
                         )
                 except Exception as e:
                     fix_result["failed_fixes"] += 1
-                    self.logger.warning(f"缺口修复出错: {symbol} - {e}")
+                    self.logger.warning(
+                        f"gap repairing error occurred : {symbol} - {e}"
+                    )
             else:
                 fix_result["failed_fixes"] += 1
-                self.logger.debug(f"缺口修复跳过: {symbol} 数据源无数据（可能正常）")
+                self.logger.debug(
+                    f"gap repairing skipping : {symbol} data source no data (possibly normal )"
+                )
 
         self.logger.info(
-            f"缺口修复完成: 尝试={fix_result['attempted_fixes']}, 成功={fix_result['successful_fixes']}, 失败={fix_result['failed_fixes']}, 跳过={fix_result['skipped_fixes']}"
+            f"gap repairing completed : attempting ={fix_result['attempted_fixes']}, succeeded ={fix_result['successful_fixes']}, failed ={fix_result['failed_fixes']}, skipping ={fix_result['skipped_fixes']}"
         )
 
         # 如果大部分缺口都无法修复，说明这些缺口可能是正常的
@@ -2203,7 +2275,7 @@ class SyncManager(BaseManager):
             )
             if success_rate < 0.3:
                 self.logger.info(
-                    "💡 大部分缺口无法修复，这可能是正常现象（新股、停牌等）"
+                    "💡 most gap unable to repairing , this may be normal phenomenon (new stock 、 suspended etc )"
                 )
 
         return fix_result
@@ -2261,7 +2333,7 @@ class SyncManager(BaseManager):
                 ),
             )
         except Exception as e:
-            self.logger.error(f"插入财务数据失败 {symbol}: {e}")
+            self.logger.error(f"insert financial data failed {symbol}: {e}")
             raise
 
     def generate_sync_report(self, full_result: Dict[str, Any]) -> str:

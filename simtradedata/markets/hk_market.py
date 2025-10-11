@@ -76,7 +76,7 @@ class HKMarketAdapter(BaseManager):
             "stapled": "合订证券",
         }
 
-        logger.info("港股市场适配器初始化完成")
+        logger.info("HK market adapter initialized completed")
 
     def _get_required_attributes(self) -> List[str]:
         """必需属性列表"""
@@ -138,11 +138,13 @@ class HKMarketAdapter(BaseManager):
 
             adapted_data.update(hk_specific)
 
-            logger.debug(f"港股股票信息适配完成: {adapted_data['symbol']}")
+            logger.debug(
+                f"HK stock info adaptation completed : {adapted_data['symbol']}"
+            )
             return adapted_data
 
         except Exception as e:
-            logger.error(f"港股股票信息适配失败: {e}")
+            logger.error(f"failed to adapt HK stock info : {e}")
             return raw_data
 
     def adapt_price_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -215,11 +217,13 @@ class HKMarketAdapter(BaseManager):
             adapted_data["low_limit"] = None
             adapted_data["unlimited"] = True
 
-            logger.debug(f"港股价格数据适配完成: {adapted_data['symbol']}")
+            logger.debug(
+                f"HK price data adaptation completed : {adapted_data['symbol']}"
+            )
             return adapted_data
 
         except Exception as e:
-            logger.error(f"港股价格数据适配失败: {e}")
+            logger.error(f"failed to adapt HK price data : {e}")
             return raw_data
 
     def get_trading_calendar(
@@ -258,12 +262,12 @@ class HKMarketAdapter(BaseManager):
                 current_date += timedelta(days=1)
 
             logger.info(
-                f"港股交易日历生成完成: {start_date} 到 {end_date}, 共 {len(calendar_data)} 天"
+                f"HK trading calendar generation completed : {start_date} to {end_date}, total {len(calendar_data)} days"
             )
             return calendar_data
 
         except Exception as e:
-            logger.error(f"港股交易日历生成失败: {e}")
+            logger.error(f"HK trading calendar generating failed : {e}")
             return []
 
     def _normalize_symbol(self, symbol: str) -> str:

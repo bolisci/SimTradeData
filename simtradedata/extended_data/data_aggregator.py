@@ -47,7 +47,7 @@ class DataAggregator:
             "performance": ["return_rate", "sharpe_ratio", "max_drawdown"],
         }
 
-        logger.info("数据聚合器初始化完成")
+        logger.info("data aggregator initialized completed")
 
     def aggregate_market_data(
         self, aggregation_config: Dict[str, Any]
@@ -89,7 +89,7 @@ class DataAggregator:
                     granularity, metrics, filters, start_date, end_date
                 )
             else:
-                logger.error(f"不支持的聚合维度: {dimension}")
+                logger.error(f"unsupported aggregation dimension : {dimension}")
                 return {}
 
             # 添加元数据
@@ -102,11 +102,13 @@ class DataAggregator:
                 "generated_time": datetime.now().isoformat(),
             }
 
-            logger.info(f"市场数据聚合完成: {dimension} - {granularity}")
+            logger.info(
+                f"market data aggregation completed : {dimension} - {granularity}"
+            )
             return result
 
         except Exception as e:
-            logger.error(f"聚合市场数据失败: {e}")
+            logger.error(f"failed to aggregate market data : {e}")
             return {}
 
     def calculate_market_statistics(
@@ -211,11 +213,13 @@ class DataAggregator:
                         ),
                     }
 
-            logger.debug(f"市场统计计算完成: {market}, {date_range}天")
+            logger.debug(
+                f"market statistics calculation completed : {market}, {date_range} days"
+            )
             return statistics
 
         except Exception as e:
-            logger.error(f"计算市场统计失败: {e}")
+            logger.error(f"calculating market statistics failed : {e}")
             return {}
 
     def analyze_sector_performance(
@@ -304,12 +308,12 @@ class DataAggregator:
             sector_performance.sort(key=lambda x: x.get("return_rate", 0), reverse=True)
 
             logger.info(
-                f"板块表现分析完成: {sector_type}, {len(sector_performance)} 个板块"
+                f"sector performance analysis completed : {sector_type}, {len(sector_performance)} sector"
             )
             return sector_performance
 
         except Exception as e:
-            logger.error(f"分析板块表现失败: {e}")
+            logger.error(f"failed to analyze sector performance : {e}")
             return []
 
     def generate_market_report(
@@ -340,7 +344,7 @@ class DataAggregator:
                 start_date = target_date.replace(day=1)
                 period_days = (target_date - start_date).days + 1
             else:
-                logger.error(f"不支持的报告类型: {report_type}")
+                logger.error(f"unsupported report type : {report_type}")
                 return {}
 
             report = {
@@ -377,11 +381,13 @@ class DataAggregator:
                 target_date
             )
 
-            logger.info(f"市场报告生成完成: {report_type} - {target_date}")
+            logger.info(
+                f"market report generation completed : {report_type} - {target_date}"
+            )
             return report
 
         except Exception as e:
-            logger.error(f"生成市场报告失败: {e}")
+            logger.error(f"failed to generate market report : {e}")
             return {}
 
     def _aggregate_by_time(
@@ -454,7 +460,7 @@ class DataAggregator:
             }
 
         except Exception as e:
-            logger.error(f"按时间聚合失败: {e}")
+            logger.error(f"failed to aggregate by time : {e}")
             return {}
 
     def _aggregate_by_market(
@@ -500,7 +506,7 @@ class DataAggregator:
             return {"dimension": "market", "data": [dict(row) for row in results]}
 
         except Exception as e:
-            logger.error(f"按市场聚合失败: {e}")
+            logger.error(f"failed to aggregate by market : {e}")
             return {}
 
     def _aggregate_by_sector(
@@ -569,7 +575,7 @@ class DataAggregator:
             }
 
         except Exception as e:
-            logger.error(f"按板块聚合失败: {e}")
+            logger.error(f"failed to aggregate by sector : {e}")
             return {}
 
     def _calculate_portfolio_performance(
@@ -649,7 +655,7 @@ class DataAggregator:
             }
 
         except Exception as e:
-            logger.error(f"计算投资组合表现失败: {e}")
+            logger.error(f"calculating portfolio performance failed : {e}")
             return {}
 
     def _identify_market_highlights(
@@ -699,7 +705,7 @@ class DataAggregator:
             }
 
         except Exception as e:
-            logger.error(f"识别市场热点失败: {e}")
+            logger.error(f"identify market hot spots failed : {e}")
             return {}
 
     def _generate_technical_overview(self, target_date: date) -> Dict[str, Any]:
@@ -743,7 +749,7 @@ class DataAggregator:
                                 volumes.append(float(row["volume"]))
 
                 except Exception as e:
-                    logger.warning(f"获取 {symbol} 技术数据失败: {e}")
+                    logger.warning(f"retrieving {symbol} technical data failed : {e}")
 
             # 分析市场情感
             market_sentiment = "neutral"
@@ -820,7 +826,7 @@ class DataAggregator:
             }
 
         except Exception as e:
-            logger.error(f"生成技术指标概览失败: {e}")
+            logger.error(f"generating technical indicators overview failed : {e}")
             return {
                 "market_sentiment": "unknown",
                 "trend_direction": "unknown",

@@ -52,7 +52,7 @@ class APIRouter:
         self.enable_query_log = self.config.get("api.query_log_enabled", True)
         self.query_timeout = self.config.get("api.query_timeout", 30)
 
-        logger.info("API路由器初始化完成")
+        logger.info("API router initialized")
 
     def get_history(
         self,
@@ -112,7 +112,7 @@ class APIRouter:
                 # 尝试从缓存获取
                 cached_result = self.cache.get(cache_key)
                 if cached_result is not None:
-                    logger.debug(f"历史数据缓存命中: {cache_key}")
+                    logger.debug(f"historical data cache hit : {cache_key}")
                     return cached_result
 
             # 构建查询
@@ -146,7 +146,7 @@ class APIRouter:
             return result
 
         except Exception as e:
-            logger.error(f"获取历史数据失败: {e}")
+            logger.error(f"failed to retrieve historical data : {e}")
             return self.formatter.format_error_result(
                 str(e), "HISTORY_QUERY_ERROR", format_type
             )
@@ -211,7 +211,7 @@ class APIRouter:
                 # 尝试从缓存获取
                 cached_result = self.cache.get(cache_key)
                 if cached_result is not None:
-                    logger.debug(f"快照数据缓存命中: {cache_key}")
+                    logger.debug(f"snapshot data cache hit : {cache_key}")
                     return cached_result
 
             # 构建查询
@@ -244,7 +244,7 @@ class APIRouter:
             return result
 
         except Exception as e:
-            logger.error(f"获取快照数据失败: {e}")
+            logger.error(f"failed to retrieve snapshot data : {e}")
             return self.formatter.format_error_result(
                 str(e), "SNAPSHOT_QUERY_ERROR", format_type
             )
@@ -305,7 +305,7 @@ class APIRouter:
                 # 尝试从缓存获取
                 cached_result = self.cache.get(cache_key)
                 if cached_result is not None:
-                    logger.debug(f"财务数据缓存命中: {cache_key}")
+                    logger.debug(f"financial data cache hit : {cache_key}")
                     return cached_result
 
             # 构建查询
@@ -338,7 +338,7 @@ class APIRouter:
             return result
 
         except Exception as e:
-            logger.error(f"获取财务数据失败: {e}")
+            logger.error(f"failed to retrieve financial data : {e}")
             return self.formatter.format_error_result(
                 str(e), "FUNDAMENTALS_QUERY_ERROR", format_type
             )
@@ -399,7 +399,7 @@ class APIRouter:
                 # 尝试从缓存获取
                 cached_result = self.cache.get(cache_key)
                 if cached_result is not None:
-                    logger.debug(f"股票信息缓存命中: {cache_key}")
+                    logger.debug(f"stock info cache hit : {cache_key}")
                     return cached_result
 
             # 构建查询
@@ -433,7 +433,7 @@ class APIRouter:
             return result
 
         except Exception as e:
-            logger.error(f"获取股票信息失败: {e}")
+            logger.error(f"failed to retrieve stock info : {e}")
             return self.formatter.format_error_result(
                 str(e), "STOCK_INFO_QUERY_ERROR", format_type
             )
@@ -463,15 +463,15 @@ class APIRouter:
 
             query_time = time.time() - start_time
             logger.debug(
-                f"SQL查询完成: {query_type}, 耗时: {query_time:.3f}s, 结果数: {len(results)}"
+                f"SQL query completed : {query_type}, elapsed : {query_time:.3f}s, result count : {len(results)}"
             )
 
             return results
 
         except Exception as e:
-            logger.error(f"SQL查询失败 {query_type}: {e}")
+            logger.error(f"SQL query failed {query_type}: {e}")
             logger.debug(f"SQL: {sql}")
-            logger.debug(f"参数: {params}")
+            logger.debug(f"parameters : {params}")
             raise
 
     def _log_query(
@@ -485,11 +485,11 @@ class APIRouter:
         try:
             symbol_count = len(symbols) if symbols else 0
             logger.info(
-                f"查询完成: {query_type}, 股票数: {symbol_count}, "
+                f"query completed : {query_type}, stock count : {symbol_count},"
                 f"结果数: {result_count}, 耗时: {query_time:.3f}s"
             )
         except Exception as e:
-            logger.error(f"记录查询日志失败: {e}")
+            logger.error(f"records query log failed : {e}")
 
     def get_api_stats(self) -> Dict[str, Any]:
         """获取API统计信息"""
@@ -515,7 +515,7 @@ class APIRouter:
                 },
             }
         except Exception as e:
-            logger.error(f"获取API统计失败: {e}")
+            logger.error(f"failed to retrieve API statistics : {e}")
             return {"error": str(e)}
 
     def clear_cache(self, pattern: str = None) -> Dict[str, Any]:
@@ -536,5 +536,5 @@ class APIRouter:
                 success = self.cache.clear()
                 return {"success": success, "action": "clear_all"}
         except Exception as e:
-            logger.error(f"清理缓存失败: {e}")
+            logger.error(f"failed to clean cache : {e}")
             return {"error": str(e)}

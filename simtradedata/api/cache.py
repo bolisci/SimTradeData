@@ -37,7 +37,7 @@ class QueryCache:
         self._cache_store: Dict[str, Dict[str, Any]] = {}
         self._cache_access_times: Dict[str, float] = {}
 
-        logger.info(f"查询缓存初始化完成，启用状态: {self.enable_cache}")
+        logger.info(f"query cache initialized , enabled status : {self.enable_cache}")
 
     def get(self, cache_key: str) -> Optional[Any]:
         """
@@ -71,11 +71,11 @@ class QueryCache:
             if cache_entry.get("compressed", False):
                 data = pickle.loads(data)
 
-            logger.debug(f"缓存命中: {cache_key}")
+            logger.debug(f"cache hit : {cache_key}")
             return data
 
         except Exception as e:
-            logger.error(f"获取缓存失败 {cache_key}: {e}")
+            logger.error(f"failed to retrieve cache {cache_key}: {e}")
             return None
 
     def set(self, cache_key: str, data: Any, ttl: int = None) -> bool:
@@ -110,7 +110,7 @@ class QueryCache:
                     cache_data = pickle.dumps(data)
                     compressed = True
                 except Exception as e:
-                    logger.warning(f"数据压缩失败，使用原始数据: {e}")
+                    logger.warning(f"data compressing failed , using raw data : {e}")
                     cache_data = data
 
             # 存储缓存条目
@@ -125,11 +125,11 @@ class QueryCache:
             self._cache_store[cache_key] = cache_entry
             self._cache_access_times[cache_key] = time.time()
 
-            logger.debug(f"缓存设置成功: {cache_key}, TTL: {ttl}s")
+            logger.debug(f"cache set successfully : {cache_key}, TTL: {ttl}s")
             return True
 
         except Exception as e:
-            logger.error(f"设置缓存失败 {cache_key}: {e}")
+            logger.error(f"failed to set cache {cache_key}: {e}")
             return False
 
     def remove(self, cache_key: str) -> bool:
@@ -154,10 +154,10 @@ class QueryCache:
         try:
             self._cache_store.clear()
             self._cache_access_times.clear()
-            logger.info("缓存已清空")
+            logger.info("cache cleared")
             return True
         except Exception as e:
-            logger.error(f"清空缓存失败: {e}")
+            logger.error(f"failed to clear cache : {e}")
             return False
 
     def generate_cache_key(self, query_type: str, **kwargs) -> str:
@@ -187,11 +187,11 @@ class QueryCache:
             # 生成MD5哈希
             cache_key = hashlib.md5(key_string.encode("utf-8")).hexdigest()
 
-            logger.debug(f"生成缓存键: {key_string} -> {cache_key}")
+            logger.debug(f"generating cache key : {key_string} -> {cache_key}")
             return cache_key
 
         except Exception as e:
-            logger.error(f"生成缓存键失败: {e}")
+            logger.error(f"failed to generate cache key : {e}")
             return f"{query_type}_{int(time.time())}"
 
     def _is_expired(self, cache_entry: Dict[str, Any]) -> bool:
@@ -209,7 +209,7 @@ class QueryCache:
                 del self._cache_access_times[cache_key]
             return True
         except Exception as e:
-            logger.error(f"删除缓存失败 {cache_key}: {e}")
+            logger.error(f"failed to delete cache {cache_key}: {e}")
             return False
 
     def _evict_lru(self):
@@ -225,10 +225,10 @@ class QueryCache:
             )
 
             self._remove(lru_key)
-            logger.debug(f"LRU淘汰缓存: {lru_key}")
+            logger.debug(f"LRU evict cache : {lru_key}")
 
         except Exception as e:
-            logger.error(f"LRU淘汰失败: {e}")
+            logger.error(f"LRU evicting failed : {e}")
 
     def cleanup_expired(self) -> int:
         """
@@ -247,11 +247,11 @@ class QueryCache:
             for key in expired_keys:
                 self._remove(key)
 
-            logger.debug(f"清理过期缓存: {len(expired_keys)} 个")
+            logger.debug(f"clean expired cache : {len(expired_keys)}")
             return len(expired_keys)
 
         except Exception as e:
-            logger.error(f"清理过期缓存失败: {e}")
+            logger.error(f"clean expired cache failed : {e}")
             return 0
 
     def get_cache_stats(self) -> Dict[str, Any]:
@@ -291,7 +291,7 @@ class QueryCache:
             }
 
         except Exception as e:
-            logger.error(f"获取缓存统计失败: {e}")
+            logger.error(f"failed to retrieve cache statistics : {e}")
             return {"error": str(e)}
 
     # 删除复杂的模式失效方法，保持简洁
@@ -321,9 +321,9 @@ class QueryCache:
                     if cache_key not in self._cache_store:
                         warmed_count += 1
 
-            logger.info(f"缓存预热完成: {warmed_count} 个查询")
+            logger.info(f"cache warmup completed : {warmed_count} query")
             return warmed_count
 
         except Exception as e:
-            logger.error(f"缓存预热失败: {e}")
+            logger.error(f"cache warmup failed : {e}")
             return 0

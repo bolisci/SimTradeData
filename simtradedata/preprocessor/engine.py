@@ -127,7 +127,7 @@ class DataProcessingEngine(BaseManager):
                     )
                     return result
             except Exception as e:
-                self.logger.error(f"检查数据格式时出错: {e}")
+                self.logger.error(f"check data format error occurred : {e}")
                 raise
 
             # 统一数据格式处理 - 使用统一的数据解包函数
@@ -162,7 +162,7 @@ class DataProcessingEngine(BaseManager):
                 # 注意：空字典{}是正常的"无数据"响应，不应该作为错误
                 if raw_data != {}:
                     self.logger.warning(
-                        f"无法处理的数据格式: {type(raw_data)}, 符号: {symbol}"
+                        f"unable to processing data format : {type(raw_data)}, 符号: {symbol}"
                     )
 
         except Exception as e:
@@ -271,14 +271,14 @@ class DataProcessingEngine(BaseManager):
         try:
             df["prev_close"] = df["close"].shift(1)
         except Exception as e:
-            self.logger.error(f"计算prev_close失败: {e}")
+            self.logger.error(f"calculating prev_close failed : {e}")
             raise
 
         # 计算涨跌额
         try:
             df["change_amount"] = df["close"] - df["prev_close"]
         except Exception as e:
-            self.logger.error(f"计算change_amount失败: {e}")
+            self.logger.error(f"calculating change_amount failed : {e}")
             raise
 
         # 计算涨跌幅（百分比）
@@ -289,7 +289,7 @@ class DataProcessingEngine(BaseManager):
                 0.0,
             )
         except Exception as e:
-            self.logger.error(f"计算change_percent失败: {e}")
+            self.logger.error(f"calculating change_percent failed : {e}")
             raise
 
         # 计算振幅
@@ -300,7 +300,7 @@ class DataProcessingEngine(BaseManager):
                 0.0,
             )
         except Exception as e:
-            self.logger.error(f"计算amplitude失败: {e}")
+            self.logger.error(f"calculating amplitude failed : {e}")
             raise
 
         # 计算换手率（如果有流通股本数据）
@@ -316,7 +316,7 @@ class DataProcessingEngine(BaseManager):
                 df["prev_close"] > 0, (df["prev_close"] * 0.9).round(2), None
             )
         except Exception as e:
-            self.logger.error(f"计算涨跌停价格失败: {e}")
+            self.logger.error(f"failed to calculate limit price : {e}")
             raise
 
         # 判断是否涨停/跌停（处理None值）
@@ -339,7 +339,7 @@ class DataProcessingEngine(BaseManager):
                     <= df.loc[valid_low_limit, "low_limit"]
                 )
         except Exception as e:
-            self.logger.error(f"计算涨跌停判断失败: {e}")
+            self.logger.error(f"calculating limit price judgment failed : {e}")
             raise
 
         # 第一行数据没有前一日数据，设为默认值
@@ -356,7 +356,7 @@ class DataProcessingEngine(BaseManager):
                 df.loc[first_idx, "is_limit_up"] = False
                 df.loc[first_idx, "is_limit_down"] = False
         except Exception as e:
-            self.logger.error(f"设置第一行默认值失败: {e}")
+            self.logger.error(f"failed to set first row default value : {e}")
             raise
 
         return df
@@ -512,7 +512,7 @@ class DataProcessingEngine(BaseManager):
                 if "database is locked" in str(e) and attempt < max_retries - 1:
                     # 数据库锁定,等待后重试
                     self.logger.debug(
-                        f"数据库锁定,等待{retry_delay}秒后重试(尝试{attempt + 1}/{max_retries})"
+                        f"database locked , waiting {retry_delay} seconds before retry ( attempting {attempt + 1}/{max_retries})"
                     )
                     time.sleep(retry_delay)
                     retry_delay *= 2  # 指数退避

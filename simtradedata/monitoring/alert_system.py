@@ -89,7 +89,7 @@ class AlertRule:
                 self.last_alert_time = datetime.now()
                 return result
         except Exception as e:
-            logger.error(f"告警规则{self.rule_id}检查失败: {e}")
+            logger.error(f"alert rule {self.rule_id} check failed : {e}")
 
         return None
 
@@ -383,7 +383,7 @@ class AlertSystem:
         # 默认添加日志通知器
         self.add_notifier(LogNotifier())
 
-        logger.info("告警系统初始化完成")
+        logger.info("alert system initialized completed")
 
     def add_rule(self, rule: AlertRule):
         """
@@ -393,25 +393,25 @@ class AlertSystem:
             rule: 告警规则
         """
         self.rules[rule.rule_id] = rule
-        logger.debug(f"添加告警规则: {rule.rule_id} - {rule.name}")
+        logger.debug(f"adding alert rule : {rule.rule_id} - {rule.name}")
 
     def remove_rule(self, rule_id: str):
         """删除告警规则"""
         if rule_id in self.rules:
             del self.rules[rule_id]
-            logger.debug(f"删除告警规则: {rule_id}")
+            logger.debug(f"deleting alert rule : {rule_id}")
 
     def enable_rule(self, rule_id: str):
         """启用告警规则"""
         if rule_id in self.rules:
             self.rules[rule_id].enabled = True
-            logger.debug(f"启用告警规则: {rule_id}")
+            logger.debug(f"enable alert rule : {rule_id}")
 
     def disable_rule(self, rule_id: str):
         """禁用告警规则"""
         if rule_id in self.rules:
             self.rules[rule_id].enabled = False
-            logger.debug(f"禁用告警规则: {rule_id}")
+            logger.debug(f"disable alert rule : {rule_id}")
 
     def add_notifier(self, notifier: AlertNotifier):
         """添加通知器"""
@@ -452,7 +452,7 @@ class AlertSystem:
                     triggered_alerts.append(alert)
 
             except Exception as e:
-                logger.error(f"检查告警规则{rule.rule_id}失败: {e}")
+                logger.error(f"check alert rule {rule.rule_id} failed : {e}")
 
         return triggered_alerts
 
@@ -462,7 +462,7 @@ class AlertSystem:
             try:
                 notifier.send(alert)
             except Exception as e:
-                logger.error(f"发送告警通知失败: {e}")
+                logger.error(f"send alert notification failed : {e}")
 
     def get_alert_summary(self) -> Dict[str, Any]:
         """获取告警摘要"""

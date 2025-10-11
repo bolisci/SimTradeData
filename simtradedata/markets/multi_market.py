@@ -54,7 +54,7 @@ class MultiMarketManager(BaseManager):
         )
 
         self.logger.info(
-            f"多市场管理器初始化完成，支持市场: {list(self.adapters.keys())}"
+            f"multi-market manager initialized completed , supported markets : {list(self.adapters.keys())}"
         )
 
     def _init_specific_config(self):
@@ -89,7 +89,7 @@ class MultiMarketManager(BaseManager):
             self.adapters["SS"] = None  # A股上海
 
         except Exception as e:
-            logger.error(f"初始化市场适配器失败: {e}")
+            logger.error(f"failed to initialize market adapter : {e}")
 
     def get_market_adapter(self, market: str) -> Optional[Any]:
         """
@@ -124,7 +124,7 @@ class MultiMarketManager(BaseManager):
                 return self._default_adapt_stock_info(raw_data, market)
 
         except Exception as e:
-            logger.error(f"股票信息适配失败 {market}: {e}")
+            logger.error(f"failed to adapt stock info {market}: {e}")
             return raw_data
 
     def adapt_price_data(self, raw_data: Dict[str, Any], market: str) -> Dict[str, Any]:
@@ -148,7 +148,7 @@ class MultiMarketManager(BaseManager):
                 return self._default_adapt_price_data(raw_data, market)
 
         except Exception as e:
-            logger.error(f"价格数据适配失败 {market}: {e}")
+            logger.error(f"failed to adapt price data {market}: {e}")
             return raw_data
 
     def get_trading_calendar(
@@ -172,11 +172,13 @@ class MultiMarketManager(BaseManager):
                 return adapter.get_trading_calendar(start_date, end_date)
             else:
                 # 不再提供简化的交易日历，必须使用正确的数据源
-                logger.error(f"市场 {market} 没有可用的交易日历数据源")
+                logger.error(
+                    f"market {market} no available trading calendar data source"
+                )
                 return []
 
         except Exception as e:
-            logger.error(f"获取交易日历失败 {market}: {e}")
+            logger.error(f"retrieving trading calendar failed {market}: {e}")
             return []
 
     def get_market_info(self, market: str) -> Dict[str, Any]:
@@ -199,7 +201,7 @@ class MultiMarketManager(BaseManager):
                 return self._default_get_market_info(market)
 
         except Exception as e:
-            logger.error(f"获取市场信息失败 {market}: {e}")
+            logger.error(f"failed to retrieve market info {market}: {e}")
             return {}
 
     def get_all_markets_info(self) -> Dict[str, Dict[str, Any]]:
@@ -215,7 +217,7 @@ class MultiMarketManager(BaseManager):
             try:
                 markets_info[market] = self.get_market_info(market)
             except Exception as e:
-                logger.error(f"获取市场信息失败 {market}: {e}")
+                logger.error(f"failed to retrieve market info {market}: {e}")
                 markets_info[market] = {"error": str(e)}
 
         return markets_info

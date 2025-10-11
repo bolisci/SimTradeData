@@ -69,7 +69,7 @@ class GapDetector(BaseManager):
             },
         }
 
-        self.logger.info("数据缺口检测器初始化完成")
+        self.logger.info("data gap detector initialized completed")
 
     def _get_required_attributes(self) -> List[str]:
         """必需属性列表"""
@@ -103,7 +103,9 @@ class GapDetector(BaseManager):
         if tables is None:
             tables = list(self.supported_tables.keys())
 
-        logger.info(f"开始检测所有表格缺口: {len(tables)}个表格, {len(symbols)}只股票")
+        logger.info(
+            f"starting detecting all table gap : {len(tables)}table , {len(symbols)} stocks"
+        )
 
         detection_result = {
             "start_date": str(start_date),
@@ -122,7 +124,7 @@ class GapDetector(BaseManager):
         # 按表格检测缺口
         for table_name in tables:
             if table_name not in self.supported_tables:
-                logger.warning(f"不支持的表格: {table_name}")
+                logger.warning(f"does not support table : {table_name}")
                 continue
 
             try:
@@ -143,7 +145,7 @@ class GapDetector(BaseManager):
                         detection_result["summary"]["gap_types"][gap["gap_type"]] += 1
 
             except Exception as e:
-                logger.error(f"检测表格 {table_name} 缺口失败: {e}")
+                logger.error(f"detecting table {table_name} gap failed : {e}")
                 detection_result["gaps_by_table"][table_name] = {
                     "error": str(e),
                     "gaps": [],
@@ -156,7 +158,7 @@ class GapDetector(BaseManager):
         )
 
         logger.info(
-            f"所有表格缺口检测完成: 总缺口={detection_result['summary']['total_gaps']}, "
+            f"all table gap detection completed : 总 gap ={detection_result['summary']['total_gaps']},"
             f"涉及表格={detection_result['summary']['tables_with_gaps']}, "
             f"涉及股票={len(detection_result['summary']['symbols_with_gaps'])}"
         )
@@ -193,7 +195,7 @@ class GapDetector(BaseManager):
 
         try:
             logger.info(
-                f"开始缺口检测: {start_date} 到 {end_date}, 频率: {frequencies}"
+                f"starting gap detection : {start_date} to {end_date}, frequency : {frequencies}"
             )
 
             # 获取需要检测的股票列表
@@ -230,14 +232,14 @@ class GapDetector(BaseManager):
                     detection_result["summary"]["gap_types"][gap["gap_type"]] += 1
 
             logger.info(
-                f"缺口检测完成: 总缺口={detection_result['summary']['total_gaps']}, "
+                f"gap detection completed : 总 gap ={detection_result['summary']['total_gaps']},"
                 f"涉及股票={detection_result['summary']['symbols_with_gaps']}"
             )
 
             return detection_result
 
         except Exception as e:
-            logger.error(f"缺口检测失败: {e}")
+            logger.error(f"gap detection failed : {e}")
             raise
 
     def detect_symbol_gaps(
@@ -255,7 +257,9 @@ class GapDetector(BaseManager):
         Returns:
             List[Dict[str, Any]]: 缺口列表
         """
-        logger.debug(f"检测股票缺口: {symbol} {start_date} 到 {end_date} {frequency}")
+        logger.debug(
+            f"detecting stock gap : {symbol} {start_date} to {end_date} {frequency}"
+        )
 
         # 获取交易日历
         trading_days = self._get_trading_days(start_date, end_date)
@@ -268,14 +272,16 @@ class GapDetector(BaseManager):
         # 只检测日期缺口，删除过度的质量和异常检测
         gaps = self._detect_date_gaps(symbol, trading_days, existing_dates, frequency)
 
-        logger.debug(f"股票缺口检测完成: {symbol}, 发现 {len(gaps)} 个缺口")
+        logger.debug(f"stock gap detection completed : {symbol}, found {len(gaps)} gap")
         return gaps
 
     def _detect_frequency_gaps(
         self, symbols: List[str], start_date: date, end_date: date, frequency: str
     ) -> Dict[str, Any]:
         """检测特定频率的缺口"""
-        logger.info(f"检测频率缺口: {frequency}, 股票数量: {len(symbols)}")
+        logger.info(
+            f"detecting frequency gap : {frequency}, stock count : {len(symbols)}"
+        )
 
         result = {
             "frequency": frequency,
@@ -295,7 +301,7 @@ class GapDetector(BaseManager):
                     result["gaps"].extend(symbol_gaps)
 
             except Exception as e:
-                logger.error(f"检测股票缺口失败 {symbol}: {e}")
+                logger.error(f"detecting stock gap failed {symbol}: {e}")
 
         # 转换set为list以便JSON序列化
         result["symbols_with_gaps"] = list(result["symbols_with_gaps"])
@@ -306,7 +312,7 @@ class GapDetector(BaseManager):
         self, table_name: str, symbols: List[str], start_date: date, end_date: date
     ) -> Dict[str, Any]:
         """检测特定表格的缺口"""
-        logger.info(f"检测表格缺口: {table_name}, 股票数量: {len(symbols)}")
+        logger.info(f"detecting table gap : {table_name}, stock count : {len(symbols)}")
 
         table_config = self.supported_tables[table_name]
         result = {
@@ -327,10 +333,10 @@ class GapDetector(BaseManager):
                     result["gaps"].extend(symbol_gaps)
 
             except Exception as e:
-                logger.debug(f"检测 {table_name} 表格 {symbol} 缺口失败: {e}")
+                logger.debug(f"detecting {table_name} table {symbol} gap failed : {e}")
 
         logger.debug(
-            f"表格 {table_name} 缺口检测完成: 发现 {len(result['gaps'])} 个缺口"
+            f"table {table_name} gap detection completed : found {len(result['gaps'])} gap"
         )
         return result
 
@@ -410,7 +416,9 @@ class GapDetector(BaseManager):
             return dates
 
         except Exception as e:
-            logger.debug(f"获取 {table_name} 表格 {symbol} 已有日期失败: {e}")
+            logger.debug(
+                f"retrieving {table_name} table {symbol} existing dates failed : {e}"
+            )
             return []
 
     def _detect_date_gaps(
@@ -501,10 +509,12 @@ class GapDetector(BaseManager):
             trading_days = [
                 datetime.strptime(row["date"], "%Y-%m-%d").date() for row in results
             ]
-            logger.debug(f"从数据库获取到 {len(trading_days)} 个交易日")
+            logger.debug(f"retrieve from database to {len(trading_days)} trading days")
             return trading_days
         else:
-            logger.warning(f"数据库中无交易日历数据: {start_date} 到 {end_date}")
+            logger.warning(
+                f"database in no trading calendar data : {start_date} to {end_date}"
+            )
             return []
 
     def _get_existing_dates(
@@ -528,7 +538,7 @@ class GapDetector(BaseManager):
             ]
 
         except Exception as e:
-            logger.error(f"获取已有数据日期失败 {symbol}: {e}")
+            logger.error(f"failed to retrieve existing data dates {symbol}: {e}")
             return []
 
     def _get_active_symbols(self) -> List[str]:
@@ -544,11 +554,11 @@ class GapDetector(BaseManager):
             if results:
                 return [row["symbol"] for row in results]
             else:
-                logger.warning("数据库中无活跃股票")
+                logger.warning("no active stocks in database")
                 return []
 
         except Exception as e:
-            logger.error(f"获取活跃股票列表失败: {e}")
+            logger.error(f"retrieving active stocks list failed : {e}")
             return []
 
     def _calculate_gap_severity(self, start_date: date, end_date: date) -> str:
@@ -640,7 +650,7 @@ class GapDetector(BaseManager):
             return "\n".join(report_lines)
 
         except Exception as e:
-            logger.error(f"生成缺口报告失败: {e}")
+            logger.error(f"generating gap report failed : {e}")
             return f"报告生成失败: {e}"
 
     def generate_all_tables_gap_report(self, detection_result: Dict[str, Any]) -> str:
@@ -757,5 +767,5 @@ class GapDetector(BaseManager):
             return "\n".join(report_lines)
 
         except Exception as e:
-            logger.error(f"生成所有表格缺口报告失败: {e}")
+            logger.error(f"generating all table gap report failed : {e}")
             return f"报告生成失败: {e}"

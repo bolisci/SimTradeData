@@ -173,9 +173,11 @@ class PerformanceMonitor:
                 import psutil
 
                 self.psutil = psutil
-                logger.info("psutil 已启用，将监控 CPU 和内存使用")
+                logger.info("psutil enabled , will monitor CPU and memory usage")
             except ImportError:
-                logger.warning("psutil 未安装，资源监控将被禁用")
+                logger.warning(
+                    "psutil not installed , resource monitoring will be disabled"
+                )
                 self.enable_resource_monitoring = False
 
     def start_phase(self, name: str) -> bool:
@@ -192,7 +194,7 @@ class PerformanceMonitor:
             try:
                 # 检查是否已存在
                 if name in self.phases:
-                    logger.warning(f"阶段 {name} 已存在，将覆盖")
+                    logger.warning(f"stage {name} already exists , will overwrite")
 
                 # 记录开始时间
                 start_time = time.perf_counter()
@@ -216,11 +218,11 @@ class PerformanceMonitor:
                 if name not in self.phase_order:
                     self.phase_order.append(name)
 
-                logger.debug(f"阶段 {name} 开始计时")
+                logger.debug(f"stage {name} start timing")
                 return True
 
             except Exception as e:
-                logger.error(f"开始阶段 {name} 失败: {e}")
+                logger.error(f"starting stage {name} failed : {e}")
                 return False
 
     def end_phase(self, name: str, records_count: int = 0) -> bool:
@@ -238,14 +240,14 @@ class PerformanceMonitor:
             try:
                 # 检查阶段是否存在
                 if name not in self.phases:
-                    logger.error(f"阶段 {name} 不存在，无法结束")
+                    logger.error(f"stage {name} not exist , unable to end")
                     return False
 
                 phase = self.phases[name]
 
                 # 检查是否已结束
                 if phase.end_time is not None:
-                    logger.warning(f"阶段 {name} 已结束")
+                    logger.warning(f"stage {name} already end")
                     return False
 
                 # 记录结束时间
@@ -264,12 +266,12 @@ class PerformanceMonitor:
                     phase.memory_usage_end = self.psutil.virtual_memory().used
 
                 logger.debug(
-                    f"阶段 {name} 结束: 耗时={phase.duration:.4f}秒, 记录数={records_count}, 吞吐量={phase.throughput:.2f} 记录/秒"
+                    f"stage {name} end : elapsed ={phase.duration:.4f} seconds , record count ={records_count}, 吞吐量={phase.throughput:.2f} records / seconds"
                 )
                 return True
 
             except Exception as e:
-                logger.error(f"结束阶段 {name} 失败: {e}")
+                logger.error(f"end stage {name} failed : {e}")
                 return False
 
     def record_metric(self, name: str, value: Any, phase: Optional[str] = None) -> bool:
@@ -289,20 +291,22 @@ class PerformanceMonitor:
                 if phase is None:
                     # 全局指标
                     self.custom_metrics[name] = value
-                    logger.debug(f"记录全局指标: {name}={value}")
+                    logger.debug(f"record global metric : {name}={value}")
                 else:
                     # 阶段指标
                     if phase not in self.phases:
-                        logger.warning(f"阶段 {phase} 不存在，无法记录指标")
+                        logger.warning(
+                            f"stage {phase} not exist , unable to record metric"
+                        )
                         return False
 
                     self.phases[phase].custom_metrics[name] = value
-                    logger.debug(f"记录阶段 {phase} 指标: {name}={value}")
+                    logger.debug(f"records stage {phase} indicators : {name}={value}")
 
                 return True
 
             except Exception as e:
-                logger.error(f"记录指标 {name} 失败: {e}")
+                logger.error(f"record metric {name} failed : {e}")
                 return False
 
     def get_phase_stats(self, name: str) -> Optional[PhaseStats]:
@@ -397,7 +401,7 @@ class PerformanceMonitor:
             self.phases.clear()
             self.phase_order.clear()
             self.custom_metrics.clear()
-            logger.debug("性能监控器已重置")
+            logger.debug("performance monitor reset")
 
     def get_stats_summary(self) -> Dict[str, Any]:
         """

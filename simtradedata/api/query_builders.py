@@ -41,7 +41,7 @@ class BaseQueryBuilder(ABC):
             "api.supported_markets", ["SZ", "SS", "HK", "US"]
         )
 
-        logger.debug(f"{self.__class__.__name__} 初始化完成")
+        logger.debug(f"{self.__class__.__name__} initialized")
 
     @abstractmethod
     def build_query(self, **kwargs) -> Tuple[str, List[Any]]:
@@ -108,7 +108,7 @@ class BaseQueryBuilder(ABC):
             try:
                 normalized.append(self.normalize_symbol(symbol))
             except ValueError as e:
-                logger.warning(f"跳过无效股票代码 {symbol}: {e}")
+                logger.warning(f"skipping invalid stock code {symbol}: {e}")
 
         if not normalized:
             raise ValueError("没有有效的股票代码")
@@ -377,13 +377,13 @@ class HistoryQueryBuilder(BaseQueryBuilder):
             {limit_str}
             """
 
-            logger.debug(f"历史数据查询SQL: {sql}")
-            logger.debug(f"查询参数: {params}")
+            logger.debug(f"historical data query SQL: {sql}")
+            logger.debug(f"query parameters : {params}")
 
             return sql.strip(), params
 
         except Exception as e:
-            logger.error(f"构建历史数据查询失败: {e}")
+            logger.error(f"failed to build historical data query : {e}")
             raise
 
 
@@ -488,13 +488,13 @@ class SnapshotQueryBuilder(BaseQueryBuilder):
             {limit_str}
             """
 
-            logger.debug(f"快照数据查询SQL: {sql}")
-            logger.debug(f"查询参数: {params}")
+            logger.debug(f"snapshot data query SQL: {sql}")
+            logger.debug(f"query parameters : {params}")
 
             return sql.strip(), params
 
         except Exception as e:
-            logger.error(f"构建快照数据查询失败: {e}")
+            logger.error(f"failed to build snapshot data query : {e}")
             raise
 
 
@@ -588,13 +588,13 @@ class FundamentalsQueryBuilder(BaseQueryBuilder):
             {limit_str}
             """
 
-            logger.debug(f"财务数据查询SQL: {sql}")
-            logger.debug(f"查询参数: {params}")
+            logger.debug(f"financial data query SQL: {sql}")
+            logger.debug(f"query parameters : {params}")
 
             return sql.strip(), params
 
         except Exception as e:
-            logger.error(f"构建财务数据查询失败: {e}")
+            logger.error(f"failed to build financial data query : {e}")
             raise
 
 
@@ -687,11 +687,11 @@ class StockInfoQueryBuilder(BaseQueryBuilder):
             {limit_str}
             """
 
-            logger.debug(f"股票信息查询SQL: {sql}")
-            logger.debug(f"查询参数: {params}")
+            logger.debug(f"stock info query SQL: {sql}")
+            logger.debug(f"query parameters : {params}")
 
             return sql.strip(), params
 
         except Exception as e:
-            logger.error(f"构建股票信息查询失败: {e}")
+            logger.error(f"failed to build stock info query : {e}")
             raise

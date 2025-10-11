@@ -67,12 +67,12 @@ class MootdxAdapter(BaseDataSource):
 
             self._connected = True
             logger.info(
-                f"mootdx连接成功 (tdx_dir={self.tdx_dir}, use_online={self.use_online})"
+                f"mootdx connected successfully (tdx_dir={self.tdx_dir}, use_online={self.use_online})"
             )
             return True
 
         except Exception as e:
-            logger.error(f"mootdx连接失败: {e}")
+            logger.error(f"mootdx connection failed : {e}")
             return False
 
     def disconnect(self):
@@ -80,7 +80,7 @@ class MootdxAdapter(BaseDataSource):
         self._reader = None
         self._quotes = None
         self._connected = False
-        logger.info("mootdx连接已断开")
+        logger.info("mootdx disconnected")
 
     def is_connected(self) -> bool:
         """检查连接状态"""
@@ -125,7 +125,7 @@ class MootdxAdapter(BaseDataSource):
                         return self._convert_daily_data(df, symbol)
 
                 except Exception as e:
-                    logger.warning(f"本地读取日线数据失败 {symbol}: {e}")
+                    logger.warning(f"local daily data read failed {symbol}: {e}")
 
                 # 2. 降级到在线接口
                 if self.use_online and self._quotes:
@@ -136,7 +136,7 @@ class MootdxAdapter(BaseDataSource):
                 raise DataSourceDataError(f"无法获取日线数据: {symbol}")
 
             except Exception as e:
-                logger.error(f"获取日线数据失败 {symbol}: {e}")
+                logger.error(f"failed to retrieve daily data {symbol}: {e}")
                 raise DataSourceDataError(f"获取日线数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -161,7 +161,7 @@ class MootdxAdapter(BaseDataSource):
             raise DataSourceDataError(f"在线获取日线数据为空: {symbol}")
 
         except Exception as e:
-            logger.error(f"在线获取日线数据失败 {symbol}: {e}")
+            logger.error(f"online daily data retrieval failed {symbol}: {e}")
             raise DataSourceDataError(f"在线获取日线数据失败: {e}")
 
     def get_minute_data(
@@ -223,7 +223,9 @@ class MootdxAdapter(BaseDataSource):
                 return self._convert_minute_data(df, symbol, trade_date, frequency)
 
             except Exception as e:
-                logger.error(f"获取分钟线数据失败 {symbol} {trade_date}: {e}")
+                logger.error(
+                    f"failed to retrieve minute data {symbol} {trade_date}: {e}"
+                )
                 raise DataSourceDataError(f"获取分钟线数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -268,7 +270,7 @@ class MootdxAdapter(BaseDataSource):
                     # 注意：mootdx 在线获取股票列表非常慢（>60秒）
                     # 建议使用 BaoStock 或从数据库读取已缓存的股票列表
                     logger.warning(
-                        "mootdx 在线获取股票列表很慢，建议使用 BaoStock 或从数据库读取"
+                        "mootdx online fetch stock list very slow , suggest using BaoStock 或 reading from database"
                     )
 
                     # 如果确实需要使用 mootdx，则执行以下操作（但会很慢）
@@ -279,7 +281,7 @@ class MootdxAdapter(BaseDataSource):
                     return self._convert_stock_list_data(df)
 
             except Exception as e:
-                logger.error(f"获取股票信息失败: {e}")
+                logger.error(f"failed to retrieve stock info : {e}")
                 return {"success": False, "data": None, "error": str(e)}
 
         return self._retry_request(_fetch_data)
@@ -334,7 +336,7 @@ class MootdxAdapter(BaseDataSource):
                 )
 
             except Exception as e:
-                logger.error(f"获取财务数据失败 {symbol}: {e}")
+                logger.error(f"failed to retrieve financial data {symbol}: {e}")
                 raise DataSourceDataError(f"获取财务数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -373,7 +375,7 @@ class MootdxAdapter(BaseDataSource):
             try:
                 # 生成文件名
                 filename = self._get_financial_filename(report_date, report_type)
-                logger.info(f"批量导入财务数据: {filename}")
+                logger.info(f"batch importing financial data : {filename}")
 
                 # 下载并解析整个文件（包含所有股票）
                 df = self._get_financial_data_for_period(filename)
@@ -405,7 +407,7 @@ class MootdxAdapter(BaseDataSource):
                                 cleaned_dict[key] = value
                             else:
                                 logger.debug(
-                                    f"批量导入: 跳过非标量字段 {key} = {value}"
+                                    f"batch import : skipping non 标量字段 {key} = {value}"
                                 )
 
                         # 转换为字典（简化版本）
@@ -421,11 +423,11 @@ class MootdxAdapter(BaseDataSource):
 
                     except Exception as e:
                         error_count += 1
-                        logger.debug(f"处理股票 {tdx_symbol} 失败: {e}")
+                        logger.debug(f"processing stock {tdx_symbol} failed : {e}")
                         continue
 
                 logger.info(
-                    f"批量导入完成: 成功 {success_count} 条，失败 {error_count} 条"
+                    f"batch import completed : succeeded {success_count} records , failed {error_count} records"
                 )
 
                 return {
@@ -439,7 +441,7 @@ class MootdxAdapter(BaseDataSource):
                 }
 
             except Exception as e:
-                logger.error(f"批量导入财务数据失败: {e}")
+                logger.error(f"batch financial data import failed : {e}")
                 return {
                     "success": False,
                     "data": None,
@@ -490,7 +492,7 @@ class MootdxAdapter(BaseDataSource):
 
             # 检查内存缓存
             if filename in self._financial_cache:
-                logger.debug(f"从内存缓存读取: {filename}")
+                logger.debug(f"reading from memory cache : {filename}")
                 return self._financial_cache[filename]
 
             # 检查本地文件缓存
@@ -499,15 +501,15 @@ class MootdxAdapter(BaseDataSource):
 
             if os.path.exists(dat_file):
                 # 解析本地 DAT 文件
-                logger.debug(f"从本地文件读取: {dat_file}")
+                logger.debug(f"reading from local file : {dat_file}")
                 df = Affair.parse(downdir=self.financial_cache_dir, filename=filename)
             elif os.path.exists(local_file):
                 # 解析本地 ZIP 文件
-                logger.debug(f"解析本地ZIP: {local_file}")
+                logger.debug(f"parsing local ZIP : {local_file}")
                 df = Affair.parse(downdir=self.financial_cache_dir, filename=filename)
             else:
                 # 下载并解析
-                logger.info(f"下载财务数据: {filename}")
+                logger.info(f"downloading financial data : {filename}")
                 Affair.fetch(downdir=self.financial_cache_dir, filename=filename)
                 df = Affair.parse(downdir=self.financial_cache_dir, filename=filename)
 
@@ -525,7 +527,7 @@ class MootdxAdapter(BaseDataSource):
             return df
 
         except Exception as e:
-            logger.error(f"获取财务数据文件失败 {filename}: {e}")
+            logger.error(f"failed to retrieve financial data file {filename}: {e}")
             return None
 
     def get_valuation_data(
@@ -608,7 +610,7 @@ class MootdxAdapter(BaseDataSource):
                 }
 
             except Exception as e:
-                logger.error(f"获取估值数据失败 {symbol}: {e}")
+                logger.error(f"failed to retrieve valuation data {symbol}: {e}")
                 return {"success": False, "data": None, "error": str(e)}
 
         return self._retry_request(_fetch_data)
@@ -765,7 +767,7 @@ class MootdxAdapter(BaseDataSource):
             return {"success": True, "data": records, "count": len(records)}
 
         except Exception as e:
-            logger.error(f"转换日线数据失败: {e}")
+            logger.error(f"failed to convert daily data : {e}")
             return {"success": False, "data": None, "error": str(e)}
 
     def _convert_minute_data(
@@ -802,7 +804,7 @@ class MootdxAdapter(BaseDataSource):
             }
 
         except Exception as e:
-            logger.error(f"转换分钟数据失败: {e}")
+            logger.error(f"failed to convert minute data : {e}")
             return {"success": False, "data": None, "error": str(e)}
 
     def _convert_stock_list_data(self, df: pd.DataFrame) -> Dict[str, Any]:
@@ -836,7 +838,7 @@ class MootdxAdapter(BaseDataSource):
             return {"success": True, "data": stocks, "count": len(stocks)}
 
         except Exception as e:
-            logger.error(f"转换股票列表数据失败: {e}")
+            logger.error(f"failed to convert stock list data : {e}")
             return {"success": False, "data": None, "error": str(e)}
 
     def _convert_stock_info_single(self, row: pd.Series, symbol: str) -> Dict[str, Any]:
@@ -851,7 +853,7 @@ class MootdxAdapter(BaseDataSource):
             return {"success": True, "data": stock_info}
 
         except Exception as e:
-            logger.error(f"转换股票信息失败 {symbol}: {e}")
+            logger.error(f"failed to convert stock info {symbol}: {e}")
             return {"success": False, "data": None, "error": str(e)}
 
     def _convert_financial_data(
@@ -925,8 +927,8 @@ class MootdxAdapter(BaseDataSource):
             return {"success": True, "data": financial_data}
 
         except Exception as e:
-            logger.error(f"转换财务数据失败: {e}")
-            logger.debug(f"原始数据: {data_dict}")
+            logger.error(f"failed to convert financial data : {e}")
+            logger.debug(f"raw data : {data_dict}")
             return {"success": False, "data": None, "error": str(e)}
 
     def _convert_valuation_data(
@@ -946,7 +948,7 @@ class MootdxAdapter(BaseDataSource):
             }
 
         except Exception as e:
-            logger.error(f"转换估值数据失败: {e}")
+            logger.error(f"failed to convert valuation data : {e}")
             return {}
 
     def _deduplicate_columns(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -980,7 +982,7 @@ class MootdxAdapter(BaseDataSource):
                     # 添加后缀
                     new_col = f"{col}_{col_counts[col]}"
                     new_columns.append(new_col)
-                    logger.debug(f"重复列名重命名: {col} -> {new_col}")
+                    logger.debug(f"duplicate columns renaming : {col} -> {new_col}")
                 else:
                     col_counts[col] = 1
                     new_columns.append(col)
@@ -991,7 +993,7 @@ class MootdxAdapter(BaseDataSource):
             # 记录处理结果
             duplicate_count = original_col_count - len(col_counts)
             logger.info(
-                f"处理重复列名: {duplicate_count} 个重复列, 原始 {original_col_count} 列 -> 去重后 {len(df.columns)} 列"
+                f"processing duplicate columns : {duplicate_count} duplicate columns , 原始 {original_col_count} columns -> 去重后 {len(df.columns)} columns"
             )
 
         return df
@@ -1031,14 +1033,16 @@ class MootdxAdapter(BaseDataSource):
                 # 应用重命名
                 df = df.rename(columns=rename_map)
                 logger.info(
-                    f"推断列名: 重命名了 {len(rename_map)} 个未命名列 (确定性等级: {confidence_level})"
+                    f"推断 columns 名: renaming {len(rename_map)} unnamed columns (确定性 etc 级: {confidence_level})"
                 )
-                logger.debug(f"重命名映射: {rename_map}")
+                logger.debug(f"rename mapping : {rename_map}")
 
         except ImportError:
-            logger.warning("未找到列名映射模块，跳过列名推断")
+            logger.warning(
+                "column name mapping module not found , skipping column inference"
+            )
         except Exception as e:
-            logger.warning(f"列名推断失败: {e}")
+            logger.warning(f"column inference failed : {e}")
 
         return df
 

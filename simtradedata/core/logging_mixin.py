@@ -28,9 +28,9 @@ class LoggingMixin:
     def _log_method_start(self, method_name: str, **params):
         """记录方法开始执行"""
         if hasattr(self, "enable_debug") and self.enable_debug:
-            self.logger.debug(f"[{method_name}] 开始执行: {params}")
+            self.logger.debug(f"[{method_name}] starting execution : {params}")
         else:
-            self.logger.info(f"开始{method_name}")
+            self.logger.info(f"starting {method_name}")
 
     def _log_method_end(
         self, method_name: str, duration: Optional[float] = None, **result_info
@@ -42,29 +42,29 @@ class LoggingMixin:
             and self.enable_performance_log
         ):
             self.logger.info(
-                f"[{method_name}] 执行完成: 耗时{duration:.3f}s, {result_info}"
+                f"[{method_name}] executing completed : elapsed {duration:.3f}s, {result_info}"
             )
         else:
-            self.logger.info(f"{method_name}执行完成: {result_info}")
+            self.logger.info(f"{method_name} executing completed : {result_info}")
 
     def _log_error(self, method_name: str, error: Exception, **context):
         """记录错误信息"""
         exc_info = hasattr(self, "enable_debug") and self.enable_debug
         self.logger.error(
-            f"[{method_name}] 执行失败: {type(error).__name__}: {error}, "
+            f"[{method_name}] executing failed : {type(error).__name__}: {error},"
             f"上下文: {context}",
             exc_info=exc_info,
         )
 
     def _log_warning(self, method_name: str, message: str, **context):
         """记录警告信息"""
-        self.logger.warning(f"[{method_name}] {message}, 上下文: {context}")
+        self.logger.warning(f"[{method_name}] {message}, context : {context}")
 
     def _log_performance(self, operation: str, duration: float, **metrics):
         """记录性能指标"""
         if hasattr(self, "enable_performance_log") and self.enable_performance_log:
             self.logger.info(
-                f"[性能] {operation}: 耗时{duration:.3f}s, 指标: {metrics}"
+                f"[ performance ] {operation}: elapsed {duration:.3f}s, indicators : {metrics}"
             )
 
 

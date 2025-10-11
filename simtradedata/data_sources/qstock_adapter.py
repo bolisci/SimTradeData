@@ -47,7 +47,7 @@ class QStockAdapter(BaseDataSource):
         """断开QStock连接"""
         # 如果正在中断过程中，立即返回，避免阻塞
         if _interrupting.is_set():
-            logger.debug("检测到中断，跳过QStock清理")
+            logger.debug("interrupt detected , skip QStock cleanup")
             self._qstock = None
             self._connected = False
             return
@@ -63,25 +63,25 @@ class QStockAdapter(BaseDataSource):
                     def _close_session():
                         try:
                             util.session.close()
-                            logger.debug("QStock全局session已关闭")
+                            logger.debug("QStock global session closed")
                         except Exception as e:
-                            logger.debug(f"关闭session时出错: {e}")
+                            logger.debug(f"close session error occurred : {e}")
 
                     close_thread = threading.Thread(target=_close_session, daemon=True)
                     close_thread.start()
                     # 不等待线程完成，立即返回
-                    logger.debug("QStock session正在后台关闭")
+                    logger.debug("QStock session closing in background")
             except KeyboardInterrupt:
                 # 如果在close过程中被中断，设置全局标志并立即返回
                 _interrupting.set()
-                logger.debug("QStock清理被中断")
+                logger.debug("QStock cleanup interrupted")
                 raise
             except Exception as e:
-                logger.debug(f"清理QStock session失败（忽略）: {e}")
+                logger.debug(f"cleaning QStock session failed (ignore ) : {e}")
 
         self._qstock = None
         self._connected = False
-        logger.info("QStock连接已断开")
+        logger.info("QStock connection disconnected")
 
     def is_connected(self) -> bool:
         """检查连接状态"""
@@ -233,7 +233,7 @@ class QStockAdapter(BaseDataSource):
                 return df
 
             except Exception as e:
-                logger.error(f"QStock获取财务数据失败 {symbol}: {e}")
+                logger.error(f"QStock failed to retrieve financial data {symbol}: {e}")
                 raise DataSourceDataError(f"获取财务数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -258,7 +258,7 @@ class QStockAdapter(BaseDataSource):
                 return df
 
             except Exception as e:
-                logger.error(f"QStock获取板块数据失败 {block_type}: {e}")
+                logger.error(f"QStock failed to retrieve sector data {block_type}: {e}")
                 raise DataSourceDataError(f"获取板块数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -291,7 +291,7 @@ class QStockAdapter(BaseDataSource):
                 return df
 
             except Exception as e:
-                logger.error(f"QStock获取资金流向失败 {symbol}: {e}")
+                logger.error(f"QStock failed to retrieve capital flow {symbol}: {e}")
                 raise DataSourceDataError(f"获取资金流向失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -330,7 +330,7 @@ class QStockAdapter(BaseDataSource):
                 return df
 
             except Exception as e:
-                logger.error(f"QStock获取资产负债表失败 {symbol}: {e}")
+                logger.error(f"QStock failed to retrieve balance sheet {symbol}: {e}")
                 raise DataSourceDataError(f"获取资产负债表失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -366,7 +366,9 @@ class QStockAdapter(BaseDataSource):
                 return df
 
             except Exception as e:
-                logger.error(f"QStock获取利润表失败 {symbol}: {e}")
+                logger.error(
+                    f"QStock failed to retrieve income statement {symbol}: {e}"
+                )
                 raise DataSourceDataError(f"获取利润表失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -402,7 +404,9 @@ class QStockAdapter(BaseDataSource):
                 return df
 
             except Exception as e:
-                logger.error(f"QStock获取现金流量表失败 {symbol}: {e}")
+                logger.error(
+                    f"QStock failed to retrieve cash flow statement {symbol}: {e}"
+                )
                 raise DataSourceDataError(f"获取现金流量表失败: {e}")
 
         return self._retry_request(_fetch_data)

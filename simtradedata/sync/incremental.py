@@ -75,9 +75,11 @@ class IncrementalSync:
         if self.enable_cache:
             try:
                 self.cache_manager = CacheManager(config=self.config)
-                logger.info("缓存管理器初始化成功")
+                logger.info("cache manager initialized successfully")
             except Exception as e:
-                logger.warning(f"缓存管理器初始化失败: {e}，将禁用缓存功能")
+                logger.warning(
+                    f"cache manager initialization failed : {e}, will disable cache functionality"
+                )
                 self.enable_cache = False
 
         # 性能监控配置
@@ -95,9 +97,11 @@ class IncrementalSync:
                 self.performance_monitor = PerformanceMonitor(
                     enable_resource_monitoring=self.enable_resource_monitoring
                 )
-                logger.info("性能监控器初始化成功")
+                logger.info("performance monitor initialized successfully")
             except Exception as e:
-                logger.warning(f"性能监控器初始化失败: {e}，将禁用性能监控功能")
+                logger.warning(
+                    f"performance monitor initialization failed : {e}, will disable performance monitoring functionality"
+                )
                 self.enable_performance_monitor = False
 
         # 同步统计
@@ -110,7 +114,7 @@ class IncrementalSync:
             "errors": [],
         }
 
-        logger.info("增量同步器初始化完成")
+        logger.info("incremental synchronizer initialized")
 
     def sync_all_symbols(
         self,
@@ -137,7 +141,9 @@ class IncrementalSync:
             frequencies = self.sync_frequencies
 
         try:
-            logger.info(f"开始增量同步: 目标日期={target_date}, 频率={frequencies}")
+            logger.info(
+                f"starting incremental synchronization : target date ={target_date}, frequency ={frequencies}"
+            )
 
             # 🎯 开始性能监控
             if self.enable_performance_monitor and self.performance_monitor:
@@ -155,7 +161,7 @@ class IncrementalSync:
             # 🚀 缓存预加载阶段
             if self.enable_cache and self.cache_manager:
                 try:
-                    logger.info("开始预加载缓存...")
+                    logger.info("starting preload cache ...")
 
                     # 预加载交易日历（最近2年）
                     calendar_start = target_date - timedelta(days=730)  # 2年
@@ -169,7 +175,7 @@ class IncrementalSync:
                     else:
                         calendar_count = calendar_result
 
-                    logger.info(f"预加载交易日历: {calendar_count} 天")
+                    logger.info(f"preload trading calendar : {calendar_count} days")
 
                     # 预加载活跃股票元数据
                     if symbols:
@@ -186,11 +192,11 @@ class IncrementalSync:
                         else:
                             metadata_count = metadata_result
 
-                        logger.info(f"预加载股票元数据: {metadata_count} 只股票")
+                        logger.info(f"preload stock metadata : {metadata_count} stocks")
 
                 except Exception as cache_error:
                     logger.warning(
-                        f"缓存预加载失败: {cache_error}，将继续使用数据库查询"
+                        f"缓存 preload failed : {cache_error}, will continue using database query"
                     )
 
             # 🔙 历史回填阶段：检查并补充历史数据缺口
@@ -215,7 +221,7 @@ class IncrementalSync:
             }
 
             if enable_historical_backfill:
-                logger.info("开始历史数据缺口检测...")
+                logger.info("starting historical data gap detecting ...")
 
                 # 🎯 开始历史回填阶段监控
                 if self.enable_performance_monitor and self.performance_monitor:
@@ -237,10 +243,10 @@ class IncrementalSync:
                     backfill_ratio = needs_backfill_count / sample_size
                     estimated_total = int(len(symbols) * backfill_ratio)
                     logger.info(
-                        f"检测到历史数据缺口：样本中 {needs_backfill_count}/{sample_size} 只股票需要回填"
+                        f"detected historical data gap : in sample {needs_backfill_count}/{sample_size} stocks need backfill"
                     )
                     logger.info(
-                        f"预估全部 {len(symbols)} 只股票中约 {estimated_total} 只需要回填，开始历史回填..."
+                        f"estimated total {len(symbols)} stocks in about {estimated_total} need backfill , starting historical backfill ..."
                     )
 
                     # 对所有股票进行历史回填（分批处理以避免内存问题）
@@ -252,7 +258,7 @@ class IncrementalSync:
                         total_batches = (len(symbols) + batch_size - 1) // batch_size
 
                         logger.info(
-                            f"历史回填批次 {batch_num}/{total_batches}: 处理 {len(batch_symbols)} 只股票"
+                            f"historical backfill batch {batch_num}/{total_batches}: processing {len(batch_symbols)} stocks"
                         )
 
                         for symbol in batch_symbols:
@@ -281,7 +287,7 @@ class IncrementalSync:
                                             "backfilled_records"
                                         ] += backfill_result.get("success_count", 0)
                                         logger.info(
-                                            f"历史回填成功: {symbol} {gap_start} 到 {gap_end}, "
+                                            f"historical backfill succeeded : {symbol} {gap_start} to {gap_end},"
                                             f"回填 {backfill_result.get('success_count', 0)} 条记录"
                                         )
                                     else:
@@ -289,15 +295,17 @@ class IncrementalSync:
                                             "backfill_errors"
                                         ] += 1
                                         logger.warning(
-                                            f"历史回填失败: {symbol} {gap_start} 到 {gap_end}"
+                                            f"historical backfill failed : {symbol} {gap_start} to {gap_end}"
                                         )
 
                             except Exception as e:
-                                logger.warning(f"历史回填股票 {symbol} 时出错: {e}")
+                                logger.warning(
+                                    f"historical backfill stock {symbol} error occurred : {e}"
+                                )
                                 historical_backfill_stats["backfill_errors"] += 1
 
                     logger.info(
-                        f"历史回填完成: 检查了 {historical_backfill_stats['checked_symbols']} 只股票，"
+                        f"historical backfill completed : checked {historical_backfill_stats['checked_symbols']} stocks ,"
                         f"回填了 {historical_backfill_stats['backfilled_symbols']} 只股票的 "
                         f"{historical_backfill_stats['backfilled_records']} 条历史记录"
                     )
@@ -310,7 +318,9 @@ class IncrementalSync:
                         )
 
                 else:
-                    logger.info("样本检查显示历史数据完整，跳过历史回填阶段")
+                    logger.info(
+                        "sample check shows historical data complete , skip historical backfill stage"
+                    )
 
             # 🚀 智能补充阶段：检查并补充历史数据的衍生字段
             backfill_stats = {
@@ -323,7 +333,7 @@ class IncrementalSync:
             }
 
             if self.enable_smart_backfill:
-                logger.info("开始智能数据质量检查和补充...")
+                logger.info("starting smart data quality check and supplement ...")
 
                 # 🎯 开始智能补充阶段监控
                 if self.enable_performance_monitor and self.performance_monitor:
@@ -344,10 +354,10 @@ class IncrementalSync:
                     backfill_ratio = needs_backfill_count / sample_size
                     estimated_total = int(len(symbols) * backfill_ratio)
                     logger.info(
-                        f"检测到数据质量问题：样本中 {needs_backfill_count}/{sample_size} 只股票需要补充衍生字段"
+                        f"detected data quality issue : in sample {needs_backfill_count}/{sample_size} stocks need supplement derived fields"
                     )
                     logger.info(
-                        f"预估全部 {len(symbols)} 只股票中约 {estimated_total} 只需要补充，开始智能补充..."
+                        f"estimated total {len(symbols)} stocks in about {estimated_total} need supplement , starting smart supplement ..."
                     )
 
                     # 对所有股票进行智能补充（分批处理以避免内存问题）
@@ -359,7 +369,7 @@ class IncrementalSync:
                         total_batches = (len(symbols) + batch_size - 1) // batch_size
 
                         logger.info(
-                            f"智能补充批次 {batch_num}/{total_batches}: 处理 {len(batch_symbols)} 只股票"
+                            f"smart supplement batch {batch_num}/{total_batches}: processing {len(batch_symbols)} stocks"
                         )
 
                         for symbol in batch_symbols:
@@ -387,14 +397,16 @@ class IncrementalSync:
                                         backfill_stats["backfill_errors"] += 1
 
                             except Exception as e:
-                                logger.warning(f"智能补充股票 {symbol} 时出错: {e}")
+                                logger.warning(
+                                    f"smart supplement stock {symbol} error occurred : {e}"
+                                )
                                 backfill_stats["backfill_errors"] += 1
 
                         # 注意：不在这里更新主进度条，因为正常增量同步阶段会更新
                         # 避免重复更新导致进度超过100%
 
                     logger.info(
-                        f"智能补充完成: 检查了 {backfill_stats['checked_symbols']} 只股票，"
+                        f"smart supplement completed : checked {backfill_stats['checked_symbols']} stocks ,"
                         f"补充了 {backfill_stats['backfilled_symbols']} 只股票的 {backfill_stats['backfilled_records']} 条记录"
                     )
 
@@ -405,9 +417,13 @@ class IncrementalSync:
                         )
 
                 else:
-                    logger.info("样本检查显示数据质量良好，跳过智能补充阶段")
+                    logger.info(
+                        "sample check shows data quality is good , skip smart supplement stage"
+                    )
             else:
-                logger.info("智能补充功能已禁用，跳过数据质量检查")
+                logger.info(
+                    "smart supplement functionality disabled , skip data quality check"
+                )
 
             # 📈 正常增量同步阶段
 
@@ -449,7 +465,7 @@ class IncrementalSync:
                 result_status = "failed"
 
             logger.info(
-                f"增量同步完成: 成功={self.sync_stats['success_count']}, "
+                f"incremental synchronization completed : succeeded ={self.sync_stats['success_count']},"
                 f"错误={self.sync_stats['error_count']}, "
                 f"跳过={self.sync_stats['skipped_count']}, "
                 f"整体状态={result_status}"
@@ -457,13 +473,13 @@ class IncrementalSync:
 
             if historical_backfill_stats["backfilled_symbols"] > 0:
                 logger.info(
-                    f"历史回填完成: 回填了 {historical_backfill_stats['backfilled_symbols']} 只股票的 "
+                    f"historical backfill completed : backfilled {historical_backfill_stats['backfilled_symbols']} stocks"
                     f"{historical_backfill_stats['backfilled_records']} 条历史记录"
                 )
 
             if backfill_stats["backfilled_symbols"] > 0:
                 logger.info(
-                    f"智能补充完成: 补充了 {backfill_stats['backfilled_symbols']} 只股票的 "
+                    f"smart supplement completed : supplement {backfill_stats['backfilled_symbols']} stocks"
                     f"{backfill_stats['backfilled_records']} 条历史记录的衍生字段"
                 )
 
@@ -483,23 +499,25 @@ class IncrementalSync:
                     # 识别瓶颈并记录优化建议
                     bottlenecks = report.bottlenecks
                     if bottlenecks:
-                        logger.warning("⚠️  检测到性能瓶颈:")
+                        logger.warning("⚠️ detected performance bottleneck :")
                         for bottleneck in bottlenecks:
                             logger.warning(f"  - {bottleneck}")
                         logger.info(
-                            "💡 优化建议: 考虑调整相关配置参数以提升瓶颈阶段的性能"
+                            "💡 optimization suggestion : consider adjusting related configuration parameters to improve bottleneck stage performance"
                         )
 
                     # 将报告添加到同步统计中
                     self.sync_stats["performance_report"] = report.to_dict()
 
                 except Exception as report_error:
-                    logger.warning(f"生成性能报告失败: {report_error}")
+                    logger.warning(
+                        f"failed to generate performance report : {report_error}"
+                    )
 
             return self.sync_stats.copy()
 
         except Exception as e:
-            logger.error(f"增量同步失败: {e}")
+            logger.error(f"incremental synchronization failed : {e}")
             raise
 
     def check_data_quality(self, symbol: str, frequency: str = "1d") -> Dict[str, Any]:
@@ -554,7 +572,7 @@ class IncrementalSync:
                 }
 
         except Exception as e:
-            logger.error(f"检查数据质量失败 {symbol}: {e}")
+            logger.error(f"check data quality failed {symbol}: {e}")
             return {
                 "symbol": symbol,
                 "total_records": 0,
@@ -576,7 +594,7 @@ class IncrementalSync:
             Dict[str, Any]: 补充结果
         """
         try:
-            logger.info(f"开始智能补充股票数据: {symbol}")
+            logger.info(f"starting smart supplement stock data : {symbol}")
 
             # 获取该股票的所有数据，按日期排序
             data_sql = """
@@ -680,7 +698,7 @@ class IncrementalSync:
             if self.enable_batch_writer:
                 try:
                     logger.debug(
-                        f"使用 BatchWriter 批量更新 {symbol} 的 {len(df)} 条记录"
+                        f"use BatchWriter batch update {symbol} {len(df)} records records"
                     )
 
                     # 初始化 BatchWriter
@@ -741,7 +759,7 @@ class IncrementalSync:
 
                         except Exception as e:
                             logger.warning(
-                                f"准备批量更新记录失败 {symbol} {row['date']}: {e}"
+                                f"准备批量 failed to update record {symbol} {row['date']}: {e}"
                             )
 
                     # 手动刷新：使用自定义 UPDATE SQL
@@ -779,13 +797,13 @@ class IncrementalSync:
                         )
 
                         logger.info(
-                            f"BatchWriter 批量更新完成 {symbol}: {updated_count} 条记录"
+                            f"BatchWriter batch update completed {symbol}: {updated_count} records records"
                         )
 
                         # 获取批量写入统计
                         batch_stats = batch_writer.get_stats()
                         logger.debug(
-                            f"批量写入统计: 总记录={batch_stats['total_records']}, "
+                            f"批量写入 statistics : 总 records ={batch_stats['total_records']},"
                             f"批次数={batch_stats['total_batches']}, "
                             f"平均批次大小={batch_stats['avg_batch_size']:.1f}, "
                             f"平均刷新时间={batch_stats['avg_flush_time']:.2f}ms"
@@ -793,7 +811,7 @@ class IncrementalSync:
 
                 except Exception as batch_error:
                     logger.warning(
-                        f"BatchWriter 批量更新失败 {symbol}: {batch_error}, 降级到逐条更新"
+                        f"BatchWriter batch update failed {symbol}: {batch_error}, fallback to per-record update"
                     )
                     # 降级到逐条更新
                     self._fallback_update_records(df, symbol, frequency, updated_count)
@@ -801,12 +819,16 @@ class IncrementalSync:
 
             else:
                 # 批量写入未启用，使用逐条更新
-                logger.debug(f"BatchWriter 未启用，使用逐条更新 {symbol}")
+                logger.debug(
+                    f"BatchWriter not enabled , use per-record update {symbol}"
+                )
                 updated_count = self._fallback_update_records(
                     df, symbol, frequency, updated_count
                 )
 
-            logger.info(f"智能补充完成 {symbol}: 更新 {updated_count} 条记录")
+            logger.info(
+                f"smart supplement completed {symbol}: updating {updated_count} records records"
+            )
 
             return {
                 "symbol": symbol,
@@ -817,7 +839,7 @@ class IncrementalSync:
             }
 
         except Exception as e:
-            logger.error(f"智能补充失败 {symbol}: {e}")
+            logger.error(f"smart supplement failed {symbol}: {e}")
             return {
                 "symbol": symbol,
                 "success": False,
@@ -880,7 +902,7 @@ class IncrementalSync:
                 updated_count += 1
 
             except Exception as e:
-                logger.warning(f"更新记录失败 {symbol} {row['date']}: {e}")
+                logger.warning(f"failed to update record {symbol} {row['date']}: {e}")
 
         return updated_count
 
@@ -926,7 +948,7 @@ class IncrementalSync:
         """
         try:
             logger.info(
-                f"同步股票范围数据: {symbol} {start_date} 到 {end_date} {frequency}"
+                f"synchronization stock range data : {symbol} {start_date} to {end_date} {frequency}"
             )
 
             result = {
@@ -955,15 +977,17 @@ class IncrementalSync:
                 result["sync_dates"] = actual_result.get("processed_dates", [])
 
                 logger.debug(
-                    f"批量处理结果: 成功={result['success_count']}, 失败={result['error_count']}"
+                    f"批量 processing result : succeeded ={result['success_count']}, failed ={result['error_count']}"
                 )
 
             except Exception as e:
-                logger.error(f"批量同步失败 {symbol} {start_date}-{end_date}: {e}")
+                logger.error(
+                    f"batch synchronization failed {symbol} {start_date}-{end_date}: {e}"
+                )
                 result["error_count"] = 1
 
             logger.info(
-                f"股票范围同步完成: {symbol}, 成功={result['success_count']}, "
+                f"stock range synchronization completed : {symbol}, succeeded ={result['success_count']},"
                 f"错误={result['error_count']}"
             )
 
@@ -971,14 +995,14 @@ class IncrementalSync:
             if result["success_count"] > 0 and self.enable_cache and self.cache_manager:
                 try:
                     self.cache_manager.set_last_data_date(symbol, frequency, end_date)
-                    logger.debug(f"已更新缓存: {symbol} 最后数据日期={end_date}")
+                    logger.debug(f"cache updated : {symbol} last data date ={end_date}")
                 except Exception as cache_error:
-                    logger.warning(f"更新缓存失败: {cache_error}")
+                    logger.warning(f"failed to update cache : {cache_error}")
 
             return result
 
         except Exception as e:
-            logger.error(f"股票范围同步失败 {symbol}: {e}")
+            logger.error(f"stock range synchronization failed {symbol}: {e}")
             raise
 
     def get_last_data_date(self, symbol: str, frequency: str = "1d") -> Optional[date]:
@@ -1025,7 +1049,7 @@ class IncrementalSync:
                 return None
 
         except Exception as e:
-            logger.error(f"获取最后数据日期失败 {symbol}: {e}")
+            logger.error(f"retrieving last data date failed {symbol}: {e}")
             return None
 
     def get_earliest_data_date(
@@ -1059,7 +1083,7 @@ class IncrementalSync:
                 return None
 
         except Exception as e:
-            logger.error(f"获取最早数据日期失败 {symbol}: {e}")
+            logger.error(f"retrieving earliest data date failed {symbol}: {e}")
             return None
 
     def detect_historical_gap(
@@ -1108,7 +1132,7 @@ class IncrementalSync:
                     # 找到了交易日，这是真实的历史缺口
                     gap_end = datetime.strptime(result["date"], "%Y-%m-%d").date()
                     logger.debug(
-                        f"检测到历史缺口 {symbol}: {default_start} 到 {gap_end} "
+                        f"detected historical gap {symbol}: {default_start} to {gap_end}"
                         f"(当前最早数据: {earliest_date})"
                     )
                     return (default_start, gap_end)
@@ -1116,7 +1140,7 @@ class IncrementalSync:
                     # 没有找到交易日，说明 default_start 到 earliest_date 之间没有交易日
                     # 这不是真正的缺口，数据已经从第一个交易日开始了
                     logger.debug(
-                        f"配置起始日期 {default_start} 到最早数据日期 {earliest_date} 之间没有交易日，无需回填"
+                        f"configuration start date {default_start} to earliest data date {earliest_date} 之间 no trading day , no need to backfill"
                     )
                     return None
             else:
@@ -1124,7 +1148,7 @@ class IncrementalSync:
                 return None
 
         except Exception as e:
-            logger.error(f"检测历史缺口失败 {symbol}: {e}")
+            logger.error(f"failed to detect historical gap {symbol}: {e}")
             return None
 
     def calculate_sync_range(
@@ -1160,7 +1184,9 @@ class IncrementalSync:
                 if start_date < max_start:
                     start_date = max_start
 
-                logger.info(f"首次同步 {symbol}: {start_date} 到 {target_date}")
+                logger.info(
+                    f"first synchronization {symbol}: {start_date} to {target_date}"
+                )
                 return start_date, target_date
             else:
                 # 🆕 新增：检查历史缺口（仅在显式开启时）
@@ -1169,7 +1195,7 @@ class IncrementalSync:
                     if historical_gap:
                         gap_start, gap_end = historical_gap
                         logger.info(
-                            f"历史回填 {symbol}: {gap_start} 到 {gap_end} "
+                            f"historical backfill {symbol}: {gap_start} to {gap_end}"
                             f"(当前最早数据: {self.get_earliest_data_date(symbol, frequency)})"
                         )
                         return gap_start, gap_end
@@ -1181,25 +1207,29 @@ class IncrementalSync:
                 today = datetime.now().date()
                 if target_date > today:
                     target_date = today
-                    logger.debug(f"目标日期调整为今天: {target_date}")
+                    logger.debug(f"target date adjusted to today : {target_date}")
 
                 if start_date > target_date:
                     # 已经是最新数据
-                    logger.debug(f"数据已是最新 {symbol}: 最后日期={last_date}")
+                    logger.debug(f"data up to date {symbol}: last date ={last_date}")
                     return None, target_date
 
-                logger.debug(f"增量同步 {symbol}: {start_date} 到 {target_date}")
+                logger.debug(
+                    f"incremental synchronization {symbol}: {start_date} to {target_date}"
+                )
                 return start_date, target_date
 
         except Exception as e:
-            logger.error(f"计算同步范围失败 {symbol}: {e}")
+            logger.error(f"calculating synchronization range failed {symbol}: {e}")
             return None, target_date
 
     def _sync_frequency_data(
         self, symbols: List[str], target_date: date, frequency: str, progress_bar=None
     ) -> Dict[str, Any]:
         """同步特定频率的数据"""
-        logger.info(f"同步频率数据: {frequency}, 股票数量: {len(symbols)}")
+        logger.info(
+            f"synchronization frequency data : {frequency}, stock count : {len(symbols)}"
+        )
 
         result = {
             "frequency": frequency,
@@ -1267,7 +1297,7 @@ class IncrementalSync:
                     progress_bar.update(1)
 
             except Exception as e:
-                logger.error(f"串行同步失败 {symbol}: {e}")
+                logger.error(f"serial synchronization failed {symbol}: {e}")
                 result["error_count"] += 1
                 self.sync_stats["errors"].append(
                     {"symbol": symbol, "frequency": frequency, "error": str(e)}
@@ -1315,7 +1345,9 @@ class IncrementalSync:
                     result["sync_ranges"].update(batch_result["sync_ranges"])
 
                 except Exception as e:
-                    logger.error(f"并行同步批次失败: {batch}, 错误: {e}")
+                    logger.error(
+                        f"parallel synchronization batch failed : {batch}, error : {e}"
+                    )
                     result["error_count"] += len(batch)
 
         return result
@@ -1358,7 +1390,7 @@ class IncrementalSync:
                     batch_result["error_count"] += 1
 
             except Exception as e:
-                logger.error(f"批次同步失败 {symbol}: {e}")
+                logger.error(f"batch synchronization failed {symbol}: {e}")
                 batch_result["error_count"] += 1
 
         return batch_result
@@ -1376,11 +1408,11 @@ class IncrementalSync:
             if results:
                 return [row["symbol"] for row in results]
             else:
-                logger.warning("数据库中无活跃股票")
+                logger.warning("no active stocks in database")
                 return []
 
         except Exception as e:
-            logger.error(f"获取活跃股票列表失败: {e}")
+            logger.error(f"retrieving active stocks list failed : {e}")
             return []
 
     def _is_trading_day(self, target_date: date) -> bool:
@@ -1413,7 +1445,7 @@ class IncrementalSync:
                 raise RuntimeError(f"交易日历数据缺失，日期: {target_date}")
 
         except Exception as e:
-            logger.error(f"检查交易日失败: {e}")
+            logger.error(f"check trading day failed : {e}")
             # 不再使用简化fallback，必须有正确的交易日历数据
             raise RuntimeError(f"无法获取交易日历数据: {e}")
 
@@ -1471,11 +1503,11 @@ class IncrementalSync:
             )
 
             logger.info(
-                f"同步状态已更新: {sync_status}, 记录数: {actual_records_count}"
+                f"synchronization status updated : {sync_status}, record count : {actual_records_count}"
             )
 
         except Exception as e:
-            logger.error(f"更新同步状态失败: {e}")
+            logger.error(f"failed to update synchronization status : {e}")
 
     def get_sync_stats(self) -> Dict[str, Any]:
         """获取同步统计信息"""
@@ -1520,7 +1552,7 @@ class IncrementalSync:
                 sync_tasks.append((symbol, start_date, end_date))
 
             except Exception as e:
-                logger.error(f"计算同步范围失败 {symbol}: {e}")
+                logger.error(f"calculating synchronization range failed {symbol}: {e}")
                 result["error_count"] += 1
                 if progress_bar:
                     progress_bar.update(1)
@@ -1573,7 +1605,7 @@ class IncrementalSync:
             # 进度条已经在流水线处理中更新了，这里不需要重复更新
 
         except Exception as e:
-            logger.error(f"流水线同步失败: {e}")
+            logger.error(f"pipeline synchronization failed : {e}")
             result["error_count"] += len(sync_tasks)
             # 如果整个流水线失败，更新所有剩余进度
             if progress_bar:

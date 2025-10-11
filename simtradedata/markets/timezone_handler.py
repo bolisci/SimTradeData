@@ -50,7 +50,7 @@ class TimezoneHandler:
             "Asia/Tokyo": pytz.timezone("Asia/Tokyo"),
         }
 
-        logger.info("时区处理器初始化完成")
+        logger.info("timezone processor initialized completed")
 
     def convert_timezone(
         self,
@@ -86,11 +86,13 @@ class TimezoneHandler:
             # 转换到目标时区
             converted_dt = dt.astimezone(to_tz)
 
-            logger.debug(f"时区转换: {dt} ({from_tz}) -> {converted_dt} ({to_tz})")
+            logger.debug(
+                f"timezone converting : {dt} ({from_tz}) -> {converted_dt} ({to_tz})"
+            )
             return converted_dt
 
         except Exception as e:
-            logger.error(f"时区转换失败: {e}")
+            logger.error(f"timezone converting failed : {e}")
             return dt
 
     def get_market_timezone(self, market: str) -> pytz.BaseTzInfo:
@@ -173,7 +175,7 @@ class TimezoneHandler:
             market_time = self.get_market_time(market, dt)
             return market_time.strftime(format_str)
         except Exception as e:
-            logger.error(f"格式化市场时间失败: {e}")
+            logger.error(f"failed to format market time : {e}")
             return str(dt)
 
     def convert_trading_time(
@@ -204,7 +206,7 @@ class TimezoneHandler:
             return converted_dt.strftime("%Y-%m-%d %H:%M:%S")
 
         except Exception as e:
-            logger.error(f"转换交易时间失败: {e}")
+            logger.error(f"failed to convert trading time : {e}")
             return trade_time_str
 
     def _get_trading_sessions(self, market: str) -> List[Dict[str, time]]:
@@ -252,7 +254,7 @@ class TimezoneHandler:
             }
 
         except Exception as e:
-            logger.error(f"获取时区信息失败: {e}")
+            logger.error(f"failed to retrieve timezone info : {e}")
             return {}
 
     def get_all_market_times(self, dt: datetime = None) -> Dict[str, str]:
@@ -275,7 +277,7 @@ class TimezoneHandler:
                 market_time = self.get_market_time(market, dt)
                 market_times[market] = market_time.strftime("%Y-%m-%d %H:%M:%S %Z")
             except Exception as e:
-                logger.error(f"获取市场时间失败 {market}: {e}")
+                logger.error(f"retrieving market time failed {market}: {e}")
                 market_times[market] = "Error"
 
         return market_times

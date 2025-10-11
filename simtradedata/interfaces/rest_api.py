@@ -56,7 +56,7 @@ class RESTAPIServer:
 
         # 检查Flask是否可用
         if not FLASK_AVAILABLE:
-            logger.warning("Flask不可用，REST API服务器将无法启动")
+            logger.warning("Flask not available , REST API server cannot start")
             self.app = None
         else:
             # 创建Flask应用
@@ -73,7 +73,7 @@ class RESTAPIServer:
         self.is_running = False
         self.server_thread = None
 
-        logger.info("RESTful API服务器初始化完成")
+        logger.info("RESTful API server initialized")
 
     def _register_routes(self):
         """注册API路由"""
@@ -121,7 +121,7 @@ class RESTAPIServer:
                 )
 
             except Exception as e:
-                logger.error(f"获取股票列表失败: {e}")
+                logger.error(f"retrieving stock list failed : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/stocks/<symbol>/price", methods=["GET"])
@@ -149,7 +149,7 @@ class RESTAPIServer:
                 return jsonify({"success": True, "symbol": symbol, "data": result})
 
             except Exception as e:
-                logger.error(f"获取股票价格失败: {e}")
+                logger.error(f"failed to retrieve stock price : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/stocks/<symbol>/fundamentals", methods=["GET"])
@@ -174,7 +174,7 @@ class RESTAPIServer:
                 return jsonify({"success": True, "symbol": symbol, "data": result})
 
             except Exception as e:
-                logger.error(f"获取基本面数据失败: {e}")
+                logger.error(f"failed to retrieve fundamental data : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/stocks/<symbol>/industry", methods=["GET"])
@@ -195,7 +195,7 @@ class RESTAPIServer:
                 return jsonify({"success": True, "symbol": symbol, "data": result})
 
             except Exception as e:
-                logger.error(f"获取行业分类失败: {e}")
+                logger.error(f"failed to retrieve industry classification : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/stocks/<symbol>/indicators", methods=["GET"])
@@ -226,7 +226,7 @@ class RESTAPIServer:
                 return jsonify({"success": True, "symbol": symbol, "data": result})
 
             except Exception as e:
-                logger.error(f"获取技术指标失败: {e}")
+                logger.error(f"failed to retrieve technical indicators : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/etf/<symbol>/holdings", methods=["GET"])
@@ -249,7 +249,7 @@ class RESTAPIServer:
                 return jsonify({"success": True, "etf_symbol": symbol, "data": result})
 
             except Exception as e:
-                logger.error(f"获取ETF成分股失败: {e}")
+                logger.error(f"failed to retrieve ETF constituent stocks : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/sectors", methods=["GET"])
@@ -269,7 +269,7 @@ class RESTAPIServer:
                 return jsonify({"success": True, "data": result})
 
             except Exception as e:
-                logger.error(f"获取板块列表失败: {e}")
+                logger.error(f"failed to retrieve sector list : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/sectors/<sector_code>/constituents", methods=["GET"])
@@ -294,7 +294,7 @@ class RESTAPIServer:
                 )
 
             except Exception as e:
-                logger.error(f"获取板块成分股失败: {e}")
+                logger.error(f"failed to retrieve sector constituent stocks : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.route("/api/v1/market/stats", methods=["GET"])
@@ -318,7 +318,7 @@ class RESTAPIServer:
                 return jsonify({"success": True, "data": result})
 
             except Exception as e:
-                logger.error(f"获取市场统计失败: {e}")
+                logger.error(f"retrieving market statistics failed : {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self.app.errorhandler(404)
@@ -335,11 +335,11 @@ class RESTAPIServer:
         """启动服务器"""
         try:
             if not FLASK_AVAILABLE or not self.app:
-                logger.error("Flask不可用，无法启动REST API服务器")
+                logger.error("Flask not available , unable to start REST API server")
                 return
 
             if self.is_running:
-                logger.warning("服务器已在运行")
+                logger.warning("server already running")
                 return
 
             if threaded:
@@ -353,17 +353,19 @@ class RESTAPIServer:
                 self._run_server()
 
             self.is_running = True
-            logger.info(f"RESTful API服务器启动成功: http://{self.host}:{self.port}")
+            logger.info(
+                f"RESTful API server started successfully : http://{self.host}:{self.port}"
+            )
 
         except Exception as e:
-            logger.error(f"启动RESTful API服务器失败: {e}")
+            logger.error(f"start RESTful API server failed : {e}")
             raise
 
     def stop(self):
         """停止服务器"""
         try:
             if not self.is_running:
-                logger.warning("服务器未在运行")
+                logger.warning("server not running")
                 return
 
             self.is_running = False
@@ -372,16 +374,16 @@ class RESTAPIServer:
                 # 等待服务器线程结束
                 self.server_thread.join(timeout=5)
 
-            logger.info("RESTful API服务器已停止")
+            logger.info("RESTful API server stopped")
 
         except Exception as e:
-            logger.error(f"停止RESTful API服务器失败: {e}")
+            logger.error(f"stop RESTful API server failed : {e}")
 
     def _run_server(self):
         """运行服务器"""
         try:
             if not FLASK_AVAILABLE or not self.app:
-                logger.error("Flask不可用，无法运行服务器")
+                logger.error("Flask not available , unable to run server")
                 self.is_running = False
                 return
 
@@ -393,7 +395,7 @@ class RESTAPIServer:
                 use_reloader=False,
             )
         except Exception as e:
-            logger.error(f"服务器运行失败: {e}")
+            logger.error(f"server run failed : {e}")
             self.is_running = False
 
     def get_server_info(self) -> Dict[str, Any]:

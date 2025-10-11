@@ -75,7 +75,9 @@ class BaseManager(ABC, ConfigMixin, LoggingMixin):
         for name, dependency in dependencies.items():
             if dependency is not None:
                 setattr(self, name, dependency)
-                self.logger.debug(f"注入依赖: {name} = {type(dependency).__name__}")
+                self.logger.debug(
+                    f"inject dependency : {name} = {type(dependency).__name__}"
+                )
 
     @abstractmethod
     def _init_components(self):
@@ -98,11 +100,11 @@ class BaseManager(ABC, ConfigMixin, LoggingMixin):
         component_name = self.__class__.__name__.replace("Manager", "").replace(
             "Adapter", ""
         )
-        self.logger.info(f"{component_name}初始化完成")
+        self.logger.info(f"{component_name} initialized")
 
         if self.enable_debug:
             self.logger.debug(
-                f"配置参数: timeout={self.timeout}, retries={self.max_retries}"
+                f"configuration parameters : timeout={self.timeout}, retries={self.max_retries}"
             )
 
     def _get_config(self, key: str, default: Any = None) -> Any:

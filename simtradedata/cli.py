@@ -85,10 +85,10 @@ class SimTradeDataCLI:
             if not frequencies:
                 frequencies = ["1d"]
 
-            logger.info(f"🚀 开始全量数据同步")
-            logger.info(f"   目标日期: {target_date}")
-            logger.info(f"   股票数量: {len(symbols) if symbols else '全部'}")
-            logger.info(f"   数据频率: {', '.join(frequencies)}")
+            logger.info(f"🚀 starting full data synchronization")
+            logger.info(f"target date : {target_date}")
+            logger.info(f"stock count : {len(symbols) if symbols else ' all '}")
+            logger.info(f"data frequency : {', '.join(frequencies)}")
 
             # 执行同步
             result = self.sync_manager.run_full_sync(
@@ -106,14 +106,14 @@ class SimTradeDataCLI:
                     else {}
                 )
 
-            logger.info(f"✅ 全量同步完成!")
-            logger.info(f"   成功阶段: {summary.get('successful_phases', 0)}")
-            logger.info(f"   失败阶段: {summary.get('failed_phases', 0)}")
+            logger.info(f"✅ full synchronization completed !")
+            logger.info(f"successful phases : {summary.get('successful_phases', 0)}")
+            logger.info(f"failed phases : {summary.get('failed_phases', 0)}")
 
             return summary.get("failed_phases", 0) == 0
 
         except Exception as e:
-            logger.error(f"❌ 全量同步失败: {e}")
+            logger.error(f"❌ full synchronization failed : {e}")
             return False
 
     def incremental_sync(
@@ -143,10 +143,10 @@ class SimTradeDataCLI:
             else:
                 end_date = date.today()
 
-            logger.info(f"📈 开始增量数据同步")
-            logger.info(f"   日期范围: {start_date} 到 {end_date}")
-            logger.info(f"   股票数量: {len(symbols) if symbols else '全部'}")
-            logger.info(f"   数据频率: {frequency}")
+            logger.info(f"📈 starting incremental data synchronization")
+            logger.info(f"date range : {start_date} to {end_date}")
+            logger.info(f"stock count : {len(symbols) if symbols else ' all '}")
+            logger.info(f"data frequency : {frequency}")
 
             # 如果没有指定股票，获取所有活跃股票
             if not symbols:
@@ -157,7 +157,7 @@ class SimTradeDataCLI:
                 result = self.db_manager.fetchall(sql)
                 if result:
                     symbols = [row["symbol"] for row in result]
-                    logger.info(f"   从数据库获取 {len(symbols)} 只活跃股票")
+                    logger.info(f"retrieve from database {len(symbols)} active stocks")
                 else:
                     raise ValueError(
                         "数据库中没有活跃股票，请先运行 full-sync 更新股票列表"
@@ -175,20 +175,20 @@ class SimTradeDataCLI:
                     total_success += result.get("success_count", 0)
                     total_error += result.get("error_count", 0)
                     logger.info(
-                        f"   {symbol}: 成功 {result.get('success_count', 0)} 条"
+                        f"{symbol}: succeeded {result.get('success_count', 0)} records"
                     )
                 except Exception as e:
-                    logger.error(f"   {symbol}: 失败 - {e}")
+                    logger.error(f"{symbol}: failed - {e}")
                     total_error += 1
 
-            logger.info(f"✅ 增量同步完成!")
-            logger.info(f"   总成功: {total_success} 条")
-            logger.info(f"   总失败: {total_error} 条")
+            logger.info(f"✅ incremental synchronization completed !")
+            logger.info(f"total successes : {total_success} records")
+            logger.info(f"total errors : {total_error} records")
 
             return total_error == 0
 
         except Exception as e:
-            logger.error(f"❌ 增量同步失败: {e}")
+            logger.error(f"❌ incremental synchronization failed : {e}")
             return False
 
     def gap_detection_and_fix(
@@ -222,10 +222,10 @@ class SimTradeDataCLI:
             if not frequencies:
                 frequencies = ["1d"]
 
-            logger.info(f"🔍 开始缺口检测和修复")
-            logger.info(f"   日期范围: {start_date} 到 {end_date}")
-            logger.info(f"   股票数量: {len(symbols) if symbols else '全部'}")
-            logger.info(f"   数据频率: {', '.join(frequencies)}")
+            logger.info(f"🔍 starting gap detection and repair")
+            logger.info(f"date range : {start_date} to {end_date}")
+            logger.info(f"stock count : {len(symbols) if symbols else ' all '}")
+            logger.info(f"data frequency : {', '.join(frequencies)}")
 
             # 执行缺口检测
             detection_result = self.sync_manager.gap_detector.detect_all_gaps(
@@ -241,23 +241,27 @@ class SimTradeDataCLI:
                 fix_result = self.sync_manager._auto_fix_gaps(detection_result)
 
             detection_summary = detection_result.get("summary", {})
-            logger.info(f"🔍 缺口检测结果:")
-            logger.info(f"   发现缺口: {detection_summary.get('total_gaps', 0)} 个")
+            logger.info(f"🔍 gap detection result :")
+            logger.info(f"found gaps : {detection_summary.get('total_gaps', 0)}")
             logger.info(
-                f"   涉及股票: {detection_summary.get('symbols_with_gaps', 0)} 只"
+                f"stocks involved : {detection_summary.get('symbols_with_gaps', 0)}"
             )
 
             if fix_result:
-                logger.info(f"🔧 缺口修复结果:")
-                logger.info(f"   尝试修复: {fix_result.get('attempted_fixes', 0)} 个")
-                logger.info(f"   修复成功: {fix_result.get('successful_fixes', 0)} 个")
+                logger.info(f"🔧 gap repairing result :")
+                logger.info(
+                    f"attempting fixes : {fix_result.get('attempted_fixes', 0)}"
+                )
+                logger.info(
+                    f"successful fixes : {fix_result.get('successful_fixes', 0)}"
+                )
 
-            logger.info(f"✅ 缺口检测和修复完成!")
+            logger.info(f"✅ gap detection and repair completed !")
 
             return True
 
         except Exception as e:
-            logger.error(f"❌ 缺口检测和修复失败: {e}")
+            logger.error(f"❌ gap detection and repair failed : {e}")
             return False
 
     def resume_sync(self, symbol: str, frequency: str = "1d") -> bool:
@@ -272,9 +276,9 @@ class SimTradeDataCLI:
             bool: 是否成功
         """
         try:
-            logger.info(f"🔄 开始断点续传同步")
-            logger.info(f"   股票代码: {symbol}")
-            logger.info(f"   数据频率: {frequency}")
+            logger.info(f"🔄 starting resume from breakpoint synchronization")
+            logger.info(f"stock code : {symbol}")
+            logger.info(f"data frequency : {frequency}")
 
             # 查询最后同步状态
             sql = """
@@ -291,32 +295,34 @@ class SimTradeDataCLI:
                 resume_date = last_date + timedelta(days=1)
                 target_date = date.today()
 
-                logger.info(f"   上次同步: {last_date}")
-                logger.info(f"   续传起点: {resume_date}")
-                logger.info(f"   目标日期: {target_date}")
+                logger.info(f"last synchronization : {last_date}")
+                logger.info(f"resume point : {resume_date}")
+                logger.info(f"target date : {target_date}")
 
                 # 执行续传
                 result = self.sync_manager.incremental_sync.sync_symbol_range(
                     symbol, resume_date, target_date, frequency
                 )
 
-                logger.info(f"✅ 断点续传完成!")
-                logger.info(f"   成功: {result.get('success_count', 0)} 条")
-                logger.info(f"   失败: {result.get('error_count', 0)} 条")
+                logger.info(f"✅ resume from breakpoint completed !")
+                logger.info(f"succeeded : {result.get('success_count', 0)} records")
+                logger.info(f"failed : {result.get('error_count', 0)} records")
 
                 return result.get("error_count", 0) == 0
             else:
-                logger.warning(f"⚠️  未找到 {symbol} 的同步状态，建议使用全量同步")
+                logger.warning(
+                    f"⚠️ not found {symbol} synchronization status , suggest using full synchronization"
+                )
                 return False
 
         except Exception as e:
-            logger.error(f"❌ 断点续传失败: {e}")
+            logger.error(f"❌ resume from breakpoint failed : {e}")
             return False
 
     def status(self) -> bool:
         """查看同步状态"""
         try:
-            logger.info(f"📊 同步状态查询")
+            logger.info(f"📊 synchronization status query")
 
             # 查询同步状态统计
             sql = """
@@ -334,7 +340,9 @@ class SimTradeDataCLI:
             results = self.db_manager.fetchall(sql)
 
             if results:
-                logger.info("   频率    | 总数 | 完成 | 运行中 | 失败 | 最新同步")
+                logger.info(
+                    "frequency | total | completed | running | failed | latest synchronization"
+                )
                 logger.info("   " + "-" * 50)
                 for row in results:
                     logger.info(
@@ -343,12 +351,12 @@ class SimTradeDataCLI:
                         f"{row['failed']:4} | {row['latest_sync'] or 'N/A'}"
                     )
             else:
-                logger.info("   暂无同步状态记录")
+                logger.info("no synchronization status records")
 
             return True
 
         except Exception as e:
-            logger.error(f"❌ 状态查询失败: {e}")
+            logger.error(f"❌ status query failed : {e}")
             return False
 
 
@@ -483,14 +491,14 @@ def main():
         os._exit(0 if success else 1)
 
     except KeyboardInterrupt:
-        logger.info("用户中断操作")
+        logger.info("user interrupted operation")
         # 使用os._exit()强制退出，跳过所有清理和析构函数
         # 这样可以避免qstock session.close()阻塞
         import os
 
         os._exit(1)
     except Exception as e:
-        logger.error(f"执行失败: {e}")
+        logger.error(f"executing failed : {e}")
         import os
 
         os._exit(1)

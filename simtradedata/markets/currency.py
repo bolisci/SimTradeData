@@ -49,7 +49,7 @@ class CurrencyConverter:
             "GBP": 9.1,
         }
 
-        logger.info("货币转换器初始化完成")
+        logger.info("currency converter initialized completed")
 
     def convert(
         self,
@@ -82,18 +82,20 @@ class CurrencyConverter:
             rate = self.get_exchange_rate(from_currency, to_currency, date)
 
             if rate is None:
-                logger.warning(f"无法获取汇率: {from_currency} -> {to_currency}")
+                logger.warning(
+                    f"unable to retrieve exchange rate : {from_currency} -> {to_currency}"
+                )
                 return None
 
             converted_amount = amount * rate
 
             logger.debug(
-                f"货币转换: {amount} {from_currency} = {converted_amount:.4f} {to_currency} (汇率: {rate})"
+                f"currency converting : {amount} {from_currency} = {converted_amount:.4f} {to_currency} ( exchange rate : {rate})"
             )
             return round(converted_amount, 4)
 
         except Exception as e:
-            logger.error(f"货币转换失败: {e}")
+            logger.error(f"currency converting failed : {e}")
             return None
 
     def get_exchange_rate(
@@ -136,7 +138,7 @@ class CurrencyConverter:
             return rate
 
         except Exception as e:
-            logger.error(f"获取汇率失败: {e}")
+            logger.error(f"failed to retrieve exchange rate : {e}")
             return None
 
     def update_exchange_rates(
@@ -170,11 +172,13 @@ class CurrencyConverter:
                         cache_key = f"{from_currency}_{to_currency}_{rate_date}"
                         self._cache_rate(cache_key, rate)
 
-            logger.info(f"汇率更新完成: 更新 {updated_count} 条汇率数据")
+            logger.info(
+                f"exchange rate updating completed : updating {updated_count} records exchange rate data"
+            )
             return updated_count > 0
 
         except Exception as e:
-            logger.error(f"更新汇率失败: {e}")
+            logger.error(f"updating exchange rate failed : {e}")
             return False
 
     def get_supported_currencies(self) -> List[str]:
@@ -244,12 +248,12 @@ class CurrencyConverter:
             converted_data["original_currency"] = source_currency
 
             logger.debug(
-                f"价格数据货币转换完成: {source_currency} -> {target_currency}"
+                f"price data currency converting completed : {source_currency} -> {target_currency}"
             )
             return converted_data
 
         except Exception as e:
-            logger.error(f"价格数据货币转换失败: {e}")
+            logger.error(f"price data currency converting failed : {e}")
             return price_data
 
     def get_currency_info(self, currency: str) -> Dict[str, Any]:
@@ -350,7 +354,7 @@ class CurrencyConverter:
             return None
 
         except Exception as e:
-            logger.error(f"从数据库获取汇率失败: {e}")
+            logger.error(f"failed to retrieve exchange rate from database : {e}")
             return None
 
     def _save_rate_to_db(
@@ -378,7 +382,7 @@ class CurrencyConverter:
             return True
 
         except Exception as e:
-            logger.error(f"保存汇率到数据库失败: {e}")
+            logger.error(f"failed to save exchange rate to database : {e}")
             return False
 
     def _calculate_default_rate(
@@ -401,7 +405,7 @@ class CurrencyConverter:
                 return from_rate / to_rate
 
         except Exception as e:
-            logger.error(f"计算默认汇率失败: {e}")
+            logger.error(f"failed to calculate default exchange rate : {e}")
             return None
 
     def _is_cache_valid(self, cache_key: str) -> bool:
@@ -425,7 +429,7 @@ class CurrencyConverter:
         """清空缓存"""
         self.exchange_rates_cache.clear()
         self.cache_expiry.clear()
-        logger.info("汇率缓存已清空")
+        logger.info("exchange rate cache cleared")
 
     def get_converter_stats(self) -> Dict[str, Any]:
         """获取转换器统计信息"""

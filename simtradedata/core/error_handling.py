@@ -56,7 +56,7 @@ def unified_error_handler(
                 # 记录方法开始
                 if hasattr(args[0], "enable_debug") and args[0].enable_debug:
                     logger.debug(
-                        f"[{method_name}] 开始执行: args={args[1:]}, kwargs={kwargs}"
+                        f"[{method_name}] starting execution : args={args[1:]}, kwargs={kwargs}"
                     )
 
                 # 执行方法
@@ -74,7 +74,7 @@ def unified_error_handler(
 
             except ValidationError as e:
                 if log_errors:
-                    logger.warning(f"[{method_name}] 参数验证失败: {e}")
+                    logger.warning(f"[{method_name}] parameter validation failed : {e}")
                 error_result = _create_error_result(
                     ErrorCode.VALIDATION_ERROR, str(e), return_dict
                 )
@@ -84,7 +84,7 @@ def unified_error_handler(
 
             except ResourceNotFoundError as e:
                 if log_errors:
-                    logger.info(f"[{method_name}] 资源未找到: {e}")
+                    logger.info(f"[{method_name}] resource not found : {e}")
                 error_result = _create_error_result(
                     ErrorCode.RESOURCE_NOT_FOUND, str(e), return_dict
                 )
@@ -94,7 +94,7 @@ def unified_error_handler(
 
             except ExternalServiceError as e:
                 if log_errors:
-                    logger.error(f"[{method_name}] 外部服务错误: {e}")
+                    logger.error(f"[{method_name}] external service error : {e}")
                 error_result = _create_error_result(
                     ErrorCode.EXTERNAL_SERVICE_ERROR, str(e), return_dict
                 )
@@ -104,7 +104,9 @@ def unified_error_handler(
 
             except Exception as e:
                 if log_errors:
-                    logger.error(f"[{method_name}] 未预期错误: {e}", exc_info=True)
+                    logger.error(
+                        f"[{method_name}] unexpected error : {e}", exc_info=True
+                    )
                 error_result = _create_error_result(
                     ErrorCode.INTERNAL_ERROR, "内部处理错误", return_dict
                 )

@@ -40,7 +40,7 @@ class DataValidator:
         )
         self.check_frequencies = self.config.get("validation.frequencies", ["1d"])
 
-        logger.info("数据验证器初始化完成")
+        logger.info("data validator initialized")
 
     def validate_all_data(
         self,
@@ -72,7 +72,7 @@ class DataValidator:
 
         try:
             logger.info(
-                f"开始数据验证: {start_date} 到 {end_date}, 频率: {frequencies}"
+                f"starting data validation : {start_date} to {end_date}, frequency : {frequencies}"
             )
 
             # 获取需要验证的股票列表
@@ -123,7 +123,7 @@ class DataValidator:
                 )
 
             logger.info(
-                f"数据验证完成: 总记录={total}, "
+                f"data validation completed : 总 records ={total},"
                 f"有效={validation_result['summary']['valid_records']}, "
                 f"验证率={validation_result['summary']['validation_rate']:.2f}%"
             )
@@ -131,7 +131,7 @@ class DataValidator:
             return validation_result
 
         except Exception as e:
-            logger.error(f"数据验证失败: {e}")
+            logger.error(f"data validation failed : {e}")
             raise
 
     def validate_symbol_data(
@@ -151,7 +151,7 @@ class DataValidator:
         """
         try:
             logger.debug(
-                f"验证股票数据: {symbol} {start_date} 到 {end_date} {frequency}"
+                f"validating stock data : {symbol} {start_date} to {end_date} {frequency}"
             )
 
             result = {
@@ -189,14 +189,14 @@ class DataValidator:
             result["data_quality_stats"] = self._calculate_quality_stats(data_records)
 
             logger.debug(
-                f"股票数据验证完成: {symbol}, 有效={result['valid_records']}, "
+                f"stock data validating completed : {symbol}, valid ={result['valid_records']},"
                 f"无效={result['invalid_records']}"
             )
 
             return result
 
         except Exception as e:
-            logger.error(f"股票数据验证失败 {symbol}: {e}")
+            logger.error(f"stock data validating failed {symbol}: {e}")
             return {
                 "symbol": symbol,
                 "frequency": frequency,
@@ -211,7 +211,9 @@ class DataValidator:
         self, symbols: List[str], start_date: date, end_date: date, frequency: str
     ) -> Dict[str, Any]:
         """验证特定频率的数据"""
-        logger.info(f"验证频率数据: {frequency}, 股票数量: {len(symbols)}")
+        logger.info(
+            f"validating frequency data : {frequency}, stock count : {len(symbols)}"
+        )
 
         result = {
             "frequency": frequency,
@@ -250,7 +252,7 @@ class DataValidator:
                     result["quality_distribution"][quality_range] += 1
 
             except Exception as e:
-                logger.error(f"验证股票数据失败 {symbol}: {e}")
+                logger.error(f"validating stock data failed {symbol}: {e}")
                 result["invalid_records"] += 1
 
         return result
@@ -420,7 +422,7 @@ class DataValidator:
             return [dict(row) for row in results]
 
         except Exception as e:
-            logger.error(f"获取股票数据失败 {symbol}: {e}")
+            logger.error(f"retrieving stock data failed {symbol}: {e}")
             return []
 
     def _calculate_quality_stats(
@@ -449,7 +451,7 @@ class DataValidator:
             }
 
         except Exception as e:
-            logger.error(f"计算质量统计失败: {e}")
+            logger.error(f"calculating quality statistics failed : {e}")
             return {}
 
     def _get_active_symbols(self) -> List[str]:
@@ -465,11 +467,11 @@ class DataValidator:
             if results:
                 return [row["symbol"] for row in results]
             else:
-                logger.warning("数据库中无活跃股票")
+                logger.warning("no active stocks in database")
                 return []
 
         except Exception as e:
-            logger.error(f"获取活跃股票列表失败: {e}")
+            logger.error(f"retrieving active stocks list failed : {e}")
             return []
 
     def _get_quality_range(self, quality_score: float) -> str:
@@ -554,5 +556,5 @@ class DataValidator:
             return "\n".join(report_lines)
 
         except Exception as e:
-            logger.error(f"生成验证报告失败: {e}")
+            logger.error(f"generating validating report failed : {e}")
             return f"报告生成失败: {e}"

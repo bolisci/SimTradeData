@@ -78,7 +78,7 @@ class DatabaseManager(BaseManager):
         # 初始化数据库
         self._initialize_database()
 
-        self.logger.info(f"数据库管理器初始化完成: {self.db_path}")
+        self.logger.info(f"database manager initialized completed : {self.db_path}")
 
     def _init_specific_config(self):
         """初始化数据库管理器特定配置"""
@@ -114,7 +114,7 @@ class DatabaseManager(BaseManager):
             # 设置临时存储为内存
             conn.execute("PRAGMA temp_store = MEMORY")
 
-            logger.info("数据库初始化设置完成")
+            logger.info("database initialization settings completed")
 
     @property
     def connection(self) -> sqlite3.Connection:
@@ -136,7 +136,7 @@ class DatabaseManager(BaseManager):
             yield conn
         except Exception as e:
             conn.rollback()
-            logger.error(f"数据库操作失败: {e}")
+            logger.error(f"database operation failed : {e}")
             raise
         finally:
             # 不关闭连接，保持线程本地连接
@@ -152,7 +152,7 @@ class DatabaseManager(BaseManager):
             conn.execute("COMMIT")
         except Exception as e:
             conn.execute("ROLLBACK")
-            logger.error(f"事务回滚: {e}")
+            logger.error(f"transaction rollback : {e}")
             raise
 
     def execute(self, sql: str, params: Optional[Tuple] = None) -> sqlite3.Cursor:
@@ -234,7 +234,7 @@ class DatabaseManager(BaseManager):
         if hasattr(self._local, "connection") and self._local.connection:
             self._local.connection.close()
             self._local.connection = None
-        logger.info("数据库连接已关闭")
+        logger.info("database connection closed")
 
     def __enter__(self):
         return self

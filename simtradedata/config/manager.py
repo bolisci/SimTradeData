@@ -96,7 +96,7 @@ class Config(BaseManager):
         if singleton:
             self._initialized = True
 
-        logger.info("配置加载完成")
+        logger.info("configuration loading completed")
 
     def _init_specific_config(self):
         """初始化配置管理器特定配置"""
@@ -160,9 +160,9 @@ class Config(BaseManager):
                 file_config = yaml.safe_load(f)
                 if file_config:
                     self._merge_config(file_config)
-                    logger.info(f"从文件加载配置: {config_path}")
+                    logger.info(f"loading configuration from file : {config_path}")
         except Exception as e:
-            logger.error(f"加载配置文件失败: {e}")
+            logger.error(f"loading configuration file failed : {e}")
             raise
 
     def _load_from_env(self):
@@ -181,7 +181,9 @@ class Config(BaseManager):
             env_value = os.getenv(env_key)
             if env_value is not None:
                 self._set_nested_value(config_path, self._convert_env_value(env_value))
-                logger.debug(f"从环境变量加载: {env_key} = {env_value}")
+                logger.debug(
+                    f"loading from environment variable : {env_key} = {env_value}"
+                )
 
     def _convert_env_value(self, value: str) -> Union[str, bool, int, float]:
         """转换环境变量值类型"""
@@ -252,9 +254,9 @@ class Config(BaseManager):
         # 验证数据源配置
         for source in ["mootdx", "baostock", "qstock"]:
             if not self._has_nested_key(("data_sources", source)):
-                logger.warning(f"数据源 {source} 缺少配置")
+                logger.warning(f"data source {source} missing configuration")
 
-        logger.info("配置验证通过")
+        logger.info("configuration validation passed")
 
     def _has_nested_key(self, key_path: tuple) -> bool:
         """检查嵌套键是否存在"""
@@ -324,9 +326,11 @@ class Config(BaseManager):
             self._load_from_file(config_path)
             self._load_from_env()
             self._validate_config()
-            logger.info("配置已重新加载")
+            logger.info("configuration reloaded")
         else:
-            logger.warning("无法重新加载配置：未找到配置文件")
+            logger.warning(
+                "unable to reload configuration : configuration file not found"
+            )
 
     def save_to_file(self, file_path: Optional[str] = None):
         """保存配置到文件"""
@@ -346,9 +350,9 @@ class Config(BaseManager):
                     allow_unicode=True,
                     indent=2,
                 )
-            logger.info(f"配置已保存到: {file_path}")
+            logger.info(f"configuration saved to : {file_path}")
         except Exception as e:
-            logger.error(f"保存配置文件失败: {e}")
+            logger.error(f"saving configuration file failed : {e}")
             raise
 
     # 便捷方法

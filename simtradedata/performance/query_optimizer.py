@@ -68,7 +68,7 @@ class QueryOptimizer(BaseManager):
             "limit": re.compile(r"LIMIT\s+(\d+)", re.IGNORECASE),
         }
 
-        self.logger.info("查询优化器初始化完成")
+        self.logger.info("query optimizer initialized completed")
 
     def _get_required_attributes(self) -> List[str]:
         """必需属性列表"""
@@ -103,12 +103,14 @@ class QueryOptimizer(BaseManager):
 
             # 4. 记录优化信息
             if optimized_sql != sql:
-                logger.debug(f"查询已优化: {sql[:100]}... -> {optimized_sql[:100]}...")
+                logger.debug(
+                    f"query already optimizing : {sql[:100]}... -> {optimized_sql[:100]}..."
+                )
 
             return optimized_sql, optimized_params
 
         except Exception as e:
-            logger.error(f"查询优化失败: {e}")
+            logger.error(f"query optimizing failed : {e}")
             return sql, params
 
     def execute_with_cache(self, sql: str, params: Tuple = None) -> Any:
@@ -133,7 +135,7 @@ class QueryOptimizer(BaseManager):
                 # 检查缓存是否过期
                 if time.time() - cache_entry["timestamp"] < self.cache_ttl:
                     self.cache_stats["hits"] += 1
-                    logger.debug(f"缓存命中: {cache_key[:50]}...")
+                    logger.debug(f"cache hit : {cache_key[:50]}...")
                     return cache_entry["result"]
                 else:
                     # 缓存过期，删除
@@ -157,7 +159,7 @@ class QueryOptimizer(BaseManager):
             return result
 
         except Exception as e:
-            logger.error(f"缓存查询执行失败: {e}")
+            logger.error(f"cache query execution failed : {e}")
             raise
 
     def analyze_query_performance(
@@ -203,7 +205,7 @@ class QueryOptimizer(BaseManager):
             return analysis
 
         except Exception as e:
-            logger.error(f"查询性能分析失败: {e}")
+            logger.error(f"query performance analysis failed : {e}")
             return {"error": str(e)}
 
     def suggest_indexes(self, table_name: str = None) -> List[Dict[str, Any]]:
@@ -244,7 +246,7 @@ class QueryOptimizer(BaseManager):
             return suggestions
 
         except Exception as e:
-            logger.error(f"索引建议生成失败: {e}")
+            logger.error(f"index suggestion generating failed : {e}")
             return []
 
     def _analyze_query_pattern(self, sql: str) -> Dict[str, Any]:
@@ -348,7 +350,7 @@ class QueryOptimizer(BaseManager):
             self.query_cache[cache_key] = {"result": result, "timestamp": time.time()}
 
         except Exception as e:
-            logger.error(f"缓存结果失败: {e}")
+            logger.error(f"cache result failed : {e}")
 
     def _explain_query(self, sql: str, params: Tuple) -> Dict[str, Any]:
         """执行EXPLAIN分析"""
@@ -377,7 +379,7 @@ class QueryOptimizer(BaseManager):
             return analysis
 
         except Exception as e:
-            logger.debug(f"EXPLAIN查询失败: {e}")
+            logger.debug(f"EXPLAIN query failed : {e}")
             return {}
 
     def _generate_optimization_suggestions(
@@ -489,7 +491,7 @@ class QueryOptimizer(BaseManager):
         """清空查询缓存"""
         self.query_cache.clear()
         self.cache_stats = {"hits": 0, "misses": 0, "evictions": 0}
-        logger.info("查询缓存已清空")
+        logger.info("query cache cleared")
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """获取缓存统计"""

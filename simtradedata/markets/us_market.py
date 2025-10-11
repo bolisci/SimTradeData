@@ -86,7 +86,7 @@ class USMarketAdapter(BaseManager):
             "peg_ratio": "peg_ratio",  # PEG比率
         }
 
-        logger.info("美股市场适配器初始化完成")
+        logger.info("US market adapter initialized completed")
 
     def _get_required_attributes(self) -> List[str]:
         """必需属性列表"""
@@ -148,11 +148,13 @@ class USMarketAdapter(BaseManager):
 
             adapted_data.update(us_specific)
 
-            logger.debug(f"美股股票信息适配完成: {adapted_data['symbol']}")
+            logger.debug(
+                f"US stock info adaptation completed : {adapted_data['symbol']}"
+            )
             return adapted_data
 
         except Exception as e:
-            logger.error(f"美股股票信息适配失败: {e}")
+            logger.error(f"failed to adapt US stock info : {e}")
             return raw_data
 
     def adapt_price_data(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -241,11 +243,13 @@ class USMarketAdapter(BaseManager):
             ):
                 adapted_data["money"] = adapted_data["volume"] * adapted_data["close"]
 
-            logger.debug(f"美股价格数据适配完成: {adapted_data['symbol']}")
+            logger.debug(
+                f"US price data adaptation completed : {adapted_data['symbol']}"
+            )
             return adapted_data
 
         except Exception as e:
-            logger.error(f"美股价格数据适配失败: {e}")
+            logger.error(f"failed to adapt US price data : {e}")
             return raw_data
 
     def get_trading_calendar(
@@ -285,12 +289,12 @@ class USMarketAdapter(BaseManager):
                 current_date += timedelta(days=1)
 
             logger.info(
-                f"美股交易日历生成完成: {start_date} 到 {end_date}, 共 {len(calendar_data)} 天"
+                f"US trading calendar generation completed : {start_date} to {end_date}, total {len(calendar_data)} days"
             )
             return calendar_data
 
         except Exception as e:
-            logger.error(f"美股交易日历生成失败: {e}")
+            logger.error(f"US trading calendar generating failed : {e}")
             return []
 
     def _normalize_symbol(self, symbol: str) -> str:

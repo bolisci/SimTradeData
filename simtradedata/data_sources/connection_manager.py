@@ -78,15 +78,15 @@ class ConnectionManager:
         """
         # 检查是否已连接
         if not self.adapter.is_connected():
-            logger.debug("BaoStock未连接,正在建立连接...")
+            logger.debug("BaoStock not connected, establishing connection ...")
             self._stats["reconnect_count"] += 1  # 记录重连尝试
             try:
                 self.adapter.connect()
                 self._last_access_time = datetime.now()
-                logger.info("BaoStock连接建立成功")
+                logger.info("BaoStock connection established")
                 return True
             except Exception as e:
-                logger.error(f"BaoStock连接失败: {e}")
+                logger.error(f"BaoStock connection failed : {e}")
                 return False
 
         # 检查会话是否超时
@@ -94,17 +94,17 @@ class ConnectionManager:
             elapsed = (datetime.now() - self.adapter._last_connect_time).total_seconds()
             if elapsed > self.session_timeout:
                 logger.warning(
-                    f"BaoStock会话已超时({elapsed:.0f}秒 > {self.session_timeout}秒),正在重新连接..."
+                    f"BaoStock session timeout exceeded ({elapsed:.0f} seconds > {self.session_timeout} seconds ), re connecting connection ..."
                 )
                 self._stats["reconnect_count"] += 1  # 记录重连尝试
                 try:
                     self.adapter.disconnect()
                     self.adapter.connect()
                     self._last_access_time = datetime.now()
-                    logger.info("BaoStock会话重连成功")
+                    logger.info("BaoStock session reconnected successfully")
                     return True
                 except Exception as e:
-                    logger.error(f"BaoStock重连失败: {e}")
+                    logger.error(f"BaoStock reconnection failed : {e}")
                     return False
 
         # 会话有效,无需重连
@@ -131,21 +131,23 @@ class ConnectionManager:
         if acquired:
             self._stats["access_count"] += 1
             self._stats["total_wait_time"] += wait_time
-            logger.debug(f"获取访问锁成功,等待时间: {wait_time:.3f}秒")
+            logger.debug(
+                f"acquire access lock succeeded , wait time : {wait_time:.3f} seconds"
+            )
             return True
         else:
             self._stats["lock_timeout_count"] += 1
-            logger.warning(f"获取访问锁超时({timeout}秒)")
+            logger.warning(f"acquire access lock timeout ({timeout} seconds )")
             return False
 
     def release_lock(self):
         """释放访问锁"""
         try:
             self._lock.release()
-            logger.debug("释放访问锁")
+            logger.debug("release access lock")
         except RuntimeError as e:
             # 锁未被持有时尝试释放会抛出RuntimeError
-            logger.warning(f"释放锁失败(锁未被持有): {e}")
+            logger.warning(f"release lock failed ( lock not held ): {e}")
 
     def heartbeat(self) -> bool:
         """
@@ -167,7 +169,7 @@ class ConnectionManager:
                 return True
 
         # 执行心跳检测
-        logger.debug("执行BaoStock心跳检测...")
+        logger.debug("execute BaoStock heartbeat check ...")
         try:
             # 使用轻量级查询:查询最近一天交易日历
             from datetime import date, timedelta
@@ -177,7 +179,7 @@ class ConnectionManager:
 
             # 获取访问锁
             if not self.acquire_lock():
-                logger.warning("心跳检测获取锁失败")
+                logger.warning("heartbeat check acquire lock failed")
                 return False
 
             try:
@@ -190,14 +192,14 @@ class ConnectionManager:
                 self._stats["last_heartbeat_time"] = datetime.now()
                 self._last_access_time = datetime.now()
 
-                logger.debug("BaoStock心跳检测成功")
+                logger.debug("BaoStock heartbeat check succeeded")
                 return True
 
             finally:
                 self.release_lock()
 
         except Exception as e:
-            logger.warning(f"BaoStock心跳检测失败: {e}")
+            logger.warning(f"BaoStock heartbeat check failed : {e}")
             # 标记会话失效
             self.adapter._connected = False
             return False
@@ -206,9 +208,9 @@ class ConnectionManager:
         """断开连接"""
         try:
             self.adapter.disconnect()
-            logger.info("BaoStock连接已断开")
+            logger.info("BaoStock disconnected")
         except Exception as e:
-            logger.error(f"断开BaoStock连接失败: {e}")
+            logger.error(f"failed to disconnect BaoStock connection : {e}")
 
     def get_stats(self) -> Dict[str, Any]:
         """

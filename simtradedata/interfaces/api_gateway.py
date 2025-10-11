@@ -73,7 +73,7 @@ class APIGateway:
         # API密钥管理 (简化版)
         self.api_keys = self.config.get("api_gateway.api_keys", {})
 
-        logger.info("API网关初始化完成")
+        logger.info("API gateway initialized")
 
     def start_all_services(self):
         """启动所有API服务"""
@@ -81,10 +81,10 @@ class APIGateway:
             # 启动REST API
             self.rest_api.start(threaded=True)
 
-            logger.info("所有API服务启动完成")
+            logger.info("all API service started")
 
         except Exception as e:
-            logger.error(f"启动API服务失败: {e}")
+            logger.error(f"start API service failed : {e}")
             raise
 
     def stop_all_services(self):
@@ -93,10 +93,10 @@ class APIGateway:
             # 停止REST API
             self.rest_api.stop()
 
-            logger.info("所有API服务已停止")
+            logger.info("all API services stopped")
 
         except Exception as e:
-            logger.error(f"停止API服务失败: {e}")
+            logger.error(f"stop API service failed : {e}")
 
     def is_request_allowed(self, client_id: str) -> bool:
         """
@@ -133,7 +133,7 @@ class APIGateway:
                 return True
 
         except Exception as e:
-            logger.error(f"检查限流失败: {e}")
+            logger.error(f"failed to check rate limit : {e}")
             return True  # 出错时允许请求
 
     def authenticate_request(self, api_key: str) -> bool:
@@ -193,12 +193,12 @@ class APIGateway:
                 self.stats["failed_requests"] += 1
 
             # 记录到日志
-            logger.info(f"API请求: {log_entry}")
+            logger.info(f"API request : {log_entry}")
 
             # 可以扩展为写入数据库或文件
 
         except Exception as e:
-            logger.error(f"记录请求日志失败: {e}")
+            logger.error(f"failed to log request : {e}")
 
     def process_request(
         self, client_id: str, api_key: str, request_data: Dict[str, Any]
@@ -277,7 +277,7 @@ class APIGateway:
             return result
 
         except Exception as e:
-            logger.error(f"处理API请求失败: {e}")
+            logger.error(f"failed to process API request : {e}")
             response_time = time.time() - start_time
             self.log_request(
                 client_id,
@@ -388,13 +388,13 @@ class APIGateway:
             "created_time": datetime.now().isoformat(),
             "last_used": None,
         }
-        logger.info(f"添加API密钥: {key[:8]}...")
+        logger.info(f"add API key : {key[:8]}...")
 
     def remove_api_key(self, key: str):
         """移除API密钥"""
         if key in self.api_keys:
             del self.api_keys[key]
-            logger.info(f"移除API密钥: {key[:8]}...")
+            logger.info(f"remove API key : {key[:8]}...")
 
     def cleanup_rate_limit_data(self):
         """清理过期的限流数据"""
@@ -418,11 +418,11 @@ class APIGateway:
                     del self.request_counts[client_id]
 
                 logger.debug(
-                    f"清理限流数据: 删除 {len(clients_to_remove)} 个非活跃客户端"
+                    f"cleaning rate limit data : deleting {len(clients_to_remove)} non 活跃客户端"
                 )
 
         except Exception as e:
-            logger.error(f"清理限流数据失败: {e}")
+            logger.error(f"cleaning rate limit data failed : {e}")
 
     def health_check(self) -> Dict[str, Any]:
         """健康检查"""
@@ -446,7 +446,7 @@ class APIGateway:
             }
 
         except Exception as e:
-            logger.error(f"健康检查失败: {e}")
+            logger.error(f"health check failed : {e}")
             return {
                 "status": "unhealthy",
                 "timestamp": datetime.now().isoformat(),

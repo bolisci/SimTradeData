@@ -51,14 +51,14 @@ class BaoStockAdapter(BaseDataSource):
 
             self._connected = True
             self._last_connect_time = datetime.now()  # 记录连接时间
-            logger.info(f"BaoStock连接成功，版本: {bs.__version__}")
+            logger.info(f"BaoStock connected successfully , version : {bs.__version__}")
             return True
 
         except ImportError as e:
-            logger.error(f"BaoStock导入失败: {e}")
+            logger.error(f"BaoStock import failed : {e}")
             raise DataSourceConnectionError(f"BaoStock导入失败: {e}")
         except Exception as e:
-            logger.error(f"BaoStock连接失败: {e}")
+            logger.error(f"BaoStock connection failed : {e}")
             raise DataSourceConnectionError(f"BaoStock连接失败: {e}")
 
     def disconnect(self):
@@ -66,7 +66,7 @@ class BaoStockAdapter(BaseDataSource):
         if self._baostock and self._connected:
             try:
                 self._baostock.logout()
-                logger.debug("BaoStock连接已断开")
+                logger.debug("BaoStock disconnected")
             except:
                 pass
 
@@ -91,7 +91,7 @@ class BaoStockAdapter(BaseDataSource):
 
         # 检查是否已连接
         if not self.is_connected():
-            logger.debug("BaoStock未连接，正在建立连接...")
+            logger.debug("BaoStock not connected , establishing connection ...")
             self.connect()
             return
 
@@ -100,7 +100,7 @@ class BaoStockAdapter(BaseDataSource):
             elapsed = (datetime.now() - self._last_connect_time).total_seconds()
             if elapsed > self._session_timeout:
                 logger.warning(
-                    f"BaoStock会话已超时({elapsed:.0f}秒 > {self._session_timeout}秒)，正在重新连接..."
+                    f"BaoStock session timeout exceeded ({elapsed:.0f} seconds > {self._session_timeout} seconds ), re connecting connection ..."
                 )
                 self.disconnect()
                 self.connect()
@@ -153,7 +153,7 @@ class BaoStockAdapter(BaseDataSource):
                     or "未登录" in rs.error_msg
                 ):
                     logger.debug(
-                        f"检测到BaoStock会话过期: {rs.error_msg}，尝试重新建立连接..."
+                        f"detected BaoStock session expired : {rs.error_msg}, attempting re establish connection ..."
                     )
                     # 标记为未连接，强制重连
                     self._connected = False
@@ -173,11 +173,13 @@ class BaoStockAdapter(BaseDataSource):
 
                     if rs.error_code != "0":
                         logger.warning(
-                            f"重新连接后仍查询失败 {bs_symbol}: {rs.error_msg}"
+                            f"re connection 后仍 query failed {bs_symbol}: {rs.error_msg}"
                         )
                         return {}
                 else:
-                    logger.debug(f"BaoStock查询无数据 {bs_symbol}: {rs.error_msg}")
+                    logger.debug(
+                        f"BaoStock query returned no data {bs_symbol}: {rs.error_msg}"
+                    )
                     return {}
 
             # 直接使用get_data()获取DataFrame
@@ -185,12 +187,14 @@ class BaoStockAdapter(BaseDataSource):
 
             # 验证返回的数据类型
             if not hasattr(df, "empty") or not hasattr(df, "replace"):
-                logger.error(f"BaoStock返回了异常数据类型: {type(df)}, 内容: {df}")
+                logger.error(
+                    f"BaoStock returned abnormal data type : {type(df)}, content : {df}"
+                )
                 return {}
 
             if df.empty:
                 logger.debug(
-                    f"BaoStock返回空DataFrame: {bs_symbol}, 日期: {start_date}-{end_date}"
+                    f"BaoStock returned empty DataFrame : {bs_symbol}, date : {start_date}-{end_date}"
                 )
                 return {}
 
@@ -199,7 +203,7 @@ class BaoStockAdapter(BaseDataSource):
 
             # 验证DataFrame结构
             if len(df.columns) == 0:
-                logger.error(f"BaoStock返回空列DataFrame: {bs_symbol}")
+                logger.error(f"BaoStock returned empty columns DataFrame: {bs_symbol}")
                 return {}
 
             # 转换DataFrame为符合接口规范的字典格式
@@ -297,7 +301,7 @@ class BaoStockAdapter(BaseDataSource):
                                 except (ValueError, TypeError):
                                     pass
                 except Exception as e:
-                    logger.debug(f"获取股本信息失败 {symbol}: {e}")
+                    logger.debug(f"failed to retrieve share capital info {symbol}: {e}")
 
                 return basic_info
             else:
@@ -305,7 +309,7 @@ class BaoStockAdapter(BaseDataSource):
                 if target_date:
                     # 使用指定日期查询（确保获取该日期的真实股票列表）
                     query_date = target_date
-                    logger.debug(f"查询指定日期的股票列表: {query_date}")
+                    logger.debug(f"query stock list on specified date : {query_date}")
                 else:
                     # 使用最近的日期确保能获取到数据
                     from datetime import datetime, timedelta
@@ -313,7 +317,7 @@ class BaoStockAdapter(BaseDataSource):
                     query_date = (datetime.now() - timedelta(days=1)).strftime(
                         "%Y-%m-%d"
                     )
-                    logger.debug(f"查询最近日期的股票列表: {query_date}")
+                    logger.debug(f"query stock list on recent date : {query_date}")
 
                 rs = self._baostock.query_all_stock(day=query_date)
                 df = rs.get_data()
@@ -359,7 +363,9 @@ class BaoStockAdapter(BaseDataSource):
             )
 
             if rs.error_code != "0":
-                logger.warning(f"获取 {symbol} 估值数据失败: {rs.error_msg}")
+                logger.warning(
+                    f"retrieving {symbol} valuation data failed : {rs.error_msg}"
+                )
                 return []
 
             data_list = []
@@ -553,7 +559,9 @@ class BaoStockAdapter(BaseDataSource):
                     return []
 
             except Exception as e:
-                logger.error(f"BaoStock获取除权除息数据失败 {symbol}: {e}")
+                logger.error(
+                    f"BaoStock failed to retrieve ex-dividend data {symbol}: {e}"
+                )
                 raise DataSourceDataError(f"获取除权除息数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -583,7 +591,7 @@ class BaoStockAdapter(BaseDataSource):
             try:
                 bs_symbol = self._convert_to_baostock_symbol(symbol)
                 logger.info(
-                    f"查询盈利能力数据: {symbol} ({bs_symbol}), {year}年第{quarter}季度"
+                    f"query profitability data : {symbol} ({bs_symbol}), {year}年 No. {quarter}季度"
                 )
 
                 # 调用BaoStock API
@@ -592,7 +600,9 @@ class BaoStockAdapter(BaseDataSource):
                 )
 
                 if rs.error_code != "0":
-                    logger.error(f"BaoStock 盈利能力查询失败: {rs.error_msg}")
+                    logger.error(
+                        f"BaoStock profitability query failed : {rs.error_msg}"
+                    )
                     raise DataSourceDataError(f"查询盈利能力数据失败: {rs.error_msg}")
 
                 # 使用get_data()获取DataFrame
@@ -610,7 +620,7 @@ class BaoStockAdapter(BaseDataSource):
                 return self._convert_profit_data(record, symbol)
 
             except Exception as e:
-                logger.error(f"查询盈利能力数据失败 {symbol}: {e}")
+                logger.error(f"query profitability data failed {symbol}: {e}")
                 raise DataSourceDataError(f"查询盈利能力数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -642,7 +652,7 @@ class BaoStockAdapter(BaseDataSource):
             try:
                 bs_symbol = self._convert_to_baostock_symbol(symbol)
                 logger.info(
-                    f"查询营运能力数据: {symbol} ({bs_symbol}), {year}年第{quarter}季度"
+                    f"query operation ability data : {symbol} ({bs_symbol}), {year}年 No. {quarter}季度"
                 )
 
                 # 调用BaoStock API
@@ -651,7 +661,9 @@ class BaoStockAdapter(BaseDataSource):
                 )
 
                 if rs.error_code != "0":
-                    logger.error(f"BaoStock 营运能力查询失败: {rs.error_msg}")
+                    logger.error(
+                        f"BaoStock operation ability query failed : {rs.error_msg}"
+                    )
                     raise DataSourceDataError(f"查询营运能力数据失败: {rs.error_msg}")
 
                 # 使用get_data()获取DataFrame
@@ -669,7 +681,7 @@ class BaoStockAdapter(BaseDataSource):
                 return self._convert_operation_data(record, symbol)
 
             except Exception as e:
-                logger.error(f"查询营运能力数据失败 {symbol}: {e}")
+                logger.error(f"query operation ability data failed {symbol}: {e}")
                 raise DataSourceDataError(f"查询营运能力数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -699,7 +711,7 @@ class BaoStockAdapter(BaseDataSource):
             try:
                 bs_symbol = self._convert_to_baostock_symbol(symbol)
                 logger.info(
-                    f"查询成长能力数据: {symbol} ({bs_symbol}), {year}年第{quarter}季度"
+                    f"query growth ability data : {symbol} ({bs_symbol}), {year}年 No. {quarter}季度"
                 )
 
                 # 调用BaoStock API
@@ -708,7 +720,9 @@ class BaoStockAdapter(BaseDataSource):
                 )
 
                 if rs.error_code != "0":
-                    logger.error(f"BaoStock 成长能力查询失败: {rs.error_msg}")
+                    logger.error(
+                        f"BaoStock growth ability query failed : {rs.error_msg}"
+                    )
                     raise DataSourceDataError(f"查询成长能力数据失败: {rs.error_msg}")
 
                 # 使用get_data()获取DataFrame
@@ -726,7 +740,7 @@ class BaoStockAdapter(BaseDataSource):
                 return self._convert_growth_data(record, symbol)
 
             except Exception as e:
-                logger.error(f"查询成长能力数据失败 {symbol}: {e}")
+                logger.error(f"query growth ability data failed {symbol}: {e}")
                 raise DataSourceDataError(f"查询成长能力数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -758,7 +772,7 @@ class BaoStockAdapter(BaseDataSource):
             try:
                 bs_symbol = self._convert_to_baostock_symbol(symbol)
                 logger.info(
-                    f"查询偿债能力数据: {symbol} ({bs_symbol}), {year}年第{quarter}季度"
+                    f"query solvency data : {symbol} ({bs_symbol}), {year}年 No. {quarter}季度"
                 )
 
                 # 调用BaoStock API
@@ -767,7 +781,7 @@ class BaoStockAdapter(BaseDataSource):
                 )
 
                 if rs.error_code != "0":
-                    logger.error(f"BaoStock 偿债能力查询失败: {rs.error_msg}")
+                    logger.error(f"BaoStock solvency query failed : {rs.error_msg}")
                     raise DataSourceDataError(f"查询偿债能力数据失败: {rs.error_msg}")
 
                 # 使用get_data()获取DataFrame
@@ -785,7 +799,7 @@ class BaoStockAdapter(BaseDataSource):
                 return self._convert_balance_data(record, symbol)
 
             except Exception as e:
-                logger.error(f"查询偿债能力数据失败 {symbol}: {e}")
+                logger.error(f"query solvency data failed {symbol}: {e}")
                 raise DataSourceDataError(f"查询偿债能力数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -817,7 +831,7 @@ class BaoStockAdapter(BaseDataSource):
             try:
                 bs_symbol = self._convert_to_baostock_symbol(symbol)
                 logger.info(
-                    f"查询现金流量数据: {symbol} ({bs_symbol}), {year}年第{quarter}季度"
+                    f"query cash flow data : {symbol} ({bs_symbol}), {year}年 No. {quarter}季度"
                 )
 
                 # 调用BaoStock API
@@ -826,7 +840,7 @@ class BaoStockAdapter(BaseDataSource):
                 )
 
                 if rs.error_code != "0":
-                    logger.error(f"BaoStock 现金流量查询失败: {rs.error_msg}")
+                    logger.error(f"BaoStock cash flow query failed : {rs.error_msg}")
                     raise DataSourceDataError(f"查询现金流量数据失败: {rs.error_msg}")
 
                 # 使用get_data()获取DataFrame
@@ -844,7 +858,7 @@ class BaoStockAdapter(BaseDataSource):
                 return self._convert_cash_flow_data(record, symbol)
 
             except Exception as e:
-                logger.error(f"查询现金流量数据失败 {symbol}: {e}")
+                logger.error(f"query cash flow data failed {symbol}: {e}")
                 raise DataSourceDataError(f"查询现金流量数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -874,7 +888,7 @@ class BaoStockAdapter(BaseDataSource):
             try:
                 bs_symbol = self._convert_to_baostock_symbol(symbol)
                 logger.info(
-                    f"查询杜邦指数数据: {symbol} ({bs_symbol}), {year}年第{quarter}季度"
+                    f"query DuPont index data : {symbol} ({bs_symbol}), {year}年 No. {quarter}季度"
                 )
 
                 # 调用BaoStock API
@@ -883,7 +897,7 @@ class BaoStockAdapter(BaseDataSource):
                 )
 
                 if rs.error_code != "0":
-                    logger.error(f"BaoStock 杜邦指数查询失败: {rs.error_msg}")
+                    logger.error(f"BaoStock DuPont index query failed : {rs.error_msg}")
                     raise DataSourceDataError(f"查询杜邦指数数据失败: {rs.error_msg}")
 
                 # 使用get_data()获取DataFrame
@@ -901,7 +915,7 @@ class BaoStockAdapter(BaseDataSource):
                 return self._convert_dupont_data(record, symbol)
 
             except Exception as e:
-                logger.error(f"查询杜邦指数数据失败 {symbol}: {e}")
+                logger.error(f"query DuPont index data failed {symbol}: {e}")
                 raise DataSourceDataError(f"查询杜邦指数数据失败: {e}")
 
         return self._retry_request(_fetch_data)
@@ -990,7 +1004,7 @@ class BaoStockAdapter(BaseDataSource):
                     return {"total_share": total_share, "liqa_share": liqa_share}
 
         except Exception as e:
-            logger.warning(f"获取股本数据失败 {bs_symbol}: {e}")
+            logger.warning(f"retrieving share capital data failed {bs_symbol}: {e}")
 
         return {"total_share": 0, "liqa_share": 0}
 
@@ -1472,5 +1486,5 @@ class BaoStockAdapter(BaseDataSource):
             return {"success": True, "data": records, "count": len(records)}
 
         except Exception as e:
-            logger.error(f"转换BaoStock DataFrame失败: {e}")
+            logger.error(f"converting BaoStock DataFrame failed : {e}")
             return {"success": False, "data": None, "error": str(e)}

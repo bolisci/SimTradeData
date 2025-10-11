@@ -465,17 +465,17 @@ def create_database_schema(db_manager) -> bool:
         bool: 创建是否成功
     """
     try:
-        logger.info("开始创建全新数据库架构...")
+        logger.info("start creating new database schema ...")
 
         with db_manager.transaction() as conn:
             # 1. 创建所有表
             for table_name, schema_sql in DATABASE_SCHEMA.items():
-                logger.info(f"创建表: {table_name}")
+                logger.info(f"create table : {table_name}")
                 conn.execute(schema_sql)
 
             # 2. 创建所有索引
             for index_name, index_sql in DATABASE_INDEXES.items():
-                logger.info(f"创建索引: {index_name}")
+                logger.info(f"create index : {index_name}")
                 conn.execute(index_sql)
 
             # 3. 初始化系统配置
@@ -484,11 +484,11 @@ def create_database_schema(db_manager) -> bool:
             # 4. 初始化数据源配置
             _initialize_data_sources(conn)
 
-        logger.info("数据库架构创建完成")
+        logger.info("database schema creation completed")
         return True
 
     except Exception as e:
-        logger.error(f"创建数据库架构失败: {e}")
+        logger.error(f"failed to create database schema : {e}")
         return False
 
 
@@ -609,7 +609,7 @@ def validate_schema(db_manager) -> Dict[str, bool]:
             results["system_config_initialized"] = False
 
     except Exception as e:
-        logger.error(f"验证架构失败: {e}")
+        logger.error(f"validate schema failed : {e}")
         results["validation_error"] = str(e)
 
     return results

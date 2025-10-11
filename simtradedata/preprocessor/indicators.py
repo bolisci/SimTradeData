@@ -51,7 +51,9 @@ class TechnicalIndicators:
         self._indicator_cache = {}
         self._cache_max_size = 1000  # 最多缓存1000个股票的指标
 
-        logger.info("技术指标计算器初始化完成（优化版）")
+        logger.info(
+            "technical indicators calculator initialized completed (optimized version )"
+        )
 
     def calculate_indicators(
         self,
@@ -79,11 +81,11 @@ class TechnicalIndicators:
 
             # 检查缓存
             if cache_key in self._indicator_cache:
-                logger.debug(f"使用缓存的指标: {symbol}")
+                logger.debug(f"use cached indicators : {symbol}")
                 ptrade_data.update(self._indicator_cache[cache_key])
                 return ptrade_data
 
-            logger.debug(f"开始计算技术指标: {symbol}")
+            logger.debug(f"start calculating technical indicators : {symbol}")
 
             # 获取历史数据用于计算指标
             historical_data = self._get_historical_data(
@@ -91,7 +93,9 @@ class TechnicalIndicators:
             )
 
             if not historical_data:
-                logger.debug(f"无足够历史数据计算指标: {symbol}")
+                logger.debug(
+                    f"no sufficient historical data calculate indicators : {symbol}"
+                )
                 return ptrade_data
 
             # 添加当前数据到历史数据
@@ -112,7 +116,9 @@ class TechnicalIndicators:
             df = df.dropna()
 
             if len(df) < 5:  # 至少需要5天数据
-                logger.debug(f"历史数据不足，无法计算指标: {symbol}, 数据量: {len(df)}")
+                logger.debug(
+                    f"insufficient historical data , unable to calculate indicators : {symbol}, data count : {len(df)}"
+                )
                 return ptrade_data
 
             # 使用向量化计算所有指标
@@ -129,11 +135,13 @@ class TechnicalIndicators:
 
             self._indicator_cache[cache_key] = indicators
 
-            logger.debug(f"技术指标计算完成: {symbol}, 指标数量: {len(indicators)}")
+            logger.debug(
+                f"technical indicator calculation completed : {symbol}, indicator count : {len(indicators)}"
+            )
             return ptrade_data
 
         except Exception as e:
-            logger.error(f"技术指标计算失败 {symbol}: {e}")
+            logger.error(f"technical indicator calculation failed {symbol}: {e}")
             return ptrade_data
 
     def _calculate_all_indicators_vectorized(
@@ -192,13 +200,13 @@ class TechnicalIndicators:
             return indicators
 
         except Exception as e:
-            logger.error(f"向量化指标计算失败: {e}")
+            logger.error(f"vectorized indicator calculation failed : {e}")
             return {}
 
     def clear_cache(self):
         """清空指标缓存"""
         self._indicator_cache.clear()
-        logger.info("指标缓存已清空")
+        logger.info("indicators cache cleared")
 
     def get_cache_stats(self) -> Dict[str, int]:
         """获取缓存统计信息"""
@@ -243,11 +251,13 @@ class TechnicalIndicators:
                     }
                 )
 
-            logger.debug(f"获取历史数据: {symbol}, 数量: {len(historical_data)}")
+            logger.debug(
+                f"retrieve historical data : {symbol}, count : {len(historical_data)}"
+            )
             return historical_data
 
         except Exception as e:
-            logger.error(f"获取历史数据失败 {symbol}: {e}")
+            logger.error(f"failed to retrieve historical data {symbol}: {e}")
             return []
 
     def _calculate_moving_averages(self, df: pd.DataFrame) -> Dict[str, float]:
@@ -270,7 +280,7 @@ class TechnicalIndicators:
             return ma_indicators
 
         except Exception as e:
-            logger.error(f"移动平均线计算失败: {e}")
+            logger.error(f"moving average calculating failed : {e}")
             return {}
 
     def _calculate_ema(self, df: pd.DataFrame) -> Dict[str, float]:
@@ -294,7 +304,7 @@ class TechnicalIndicators:
             return ema_indicators
 
         except Exception as e:
-            logger.error(f"指数移动平均线计算失败: {e}")
+            logger.error(f"exponential moving average calculating failed : {e}")
             return {}
 
     def _calculate_macd(self, df: pd.DataFrame) -> Dict[str, float]:
@@ -323,7 +333,7 @@ class TechnicalIndicators:
             }
 
         except Exception as e:
-            logger.error(f"MACD计算失败: {e}")
+            logger.error(f"MACD calculation failed : {e}")
             return {"macd_dif": 0.0, "macd_dea": 0.0, "macd_histogram": 0.0}
 
     def _calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> Dict[str, float]:
@@ -355,7 +365,7 @@ class TechnicalIndicators:
             return {"rsi_12": round(float(latest_rsi), 2)}
 
         except Exception as e:
-            logger.error(f"RSI计算失败: {e}")
+            logger.error(f"RSI calculation failed : {e}")
             return {"rsi_12": 50.0}
 
     def _calculate_bollinger_bands(
@@ -383,7 +393,7 @@ class TechnicalIndicators:
             }
 
         except Exception as e:
-            logger.error(f"布林带计算失败: {e}")
+            logger.error(f"Bollinger Bands calculation failed : {e}")
             return {"bb_upper": 0.0, "bb_middle": 0.0, "bb_lower": 0.0}
 
     def _calculate_kdj(
@@ -417,7 +427,7 @@ class TechnicalIndicators:
             }
 
         except Exception as e:
-            logger.error(f"KDJ计算失败: {e}")
+            logger.error(f"KDJ calculation failed : {e}")
             return {"kdj_k": 50.0, "kdj_d": 50.0, "kdj_j": 50.0}
 
     def _calculate_ema_fast(self, close_prices: np.ndarray) -> Dict[str, float]:
@@ -443,7 +453,7 @@ class TechnicalIndicators:
             return ema_indicators
 
         except Exception as e:
-            logger.error(f"快速EMA计算失败: {e}")
+            logger.error(f"fast EMA calculation failed : {e}")
             return {}
 
     def _calculate_macd_fast(self, close_prices: np.ndarray) -> Dict[str, float]:
@@ -480,7 +490,7 @@ class TechnicalIndicators:
             }
 
         except Exception as e:
-            logger.error(f"快速MACD计算失败: {e}")
+            logger.error(f"fast MACD calculation failed : {e}")
             return {"macd_dif": 0.0, "macd_dea": 0.0, "macd_histogram": 0.0}
 
     def _calculate_rsi_fast(
@@ -511,7 +521,7 @@ class TechnicalIndicators:
             return {"rsi_12": round(float(rsi[-1]), 2)}
 
         except Exception as e:
-            logger.error(f"快速RSI计算失败: {e}")
+            logger.error(f"fast RSI calculation failed : {e}")
             return {"rsi_12": 50.0}
 
     def _calculate_kdj_fast(
@@ -572,7 +582,7 @@ class TechnicalIndicators:
             }
 
         except Exception as e:
-            logger.error(f"快速KDJ计算失败: {e}")
+            logger.error(f"fast KDJ calculation failed : {e}")
             return {"kdj_k": 50.0, "kdj_d": 50.0, "kdj_j": 50.0}
 
     def calculate_batch_indicators(
@@ -607,7 +617,7 @@ class TechnicalIndicators:
             return results
 
         except Exception as e:
-            logger.error(f"批量计算技术指标失败: {e}")
+            logger.error(f"failed to batch calculate technical indicators : {e}")
             return {}
 
     def get_indicator_config(self) -> Dict[str, Any]:

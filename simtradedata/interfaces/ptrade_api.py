@@ -42,7 +42,7 @@ class PTradeAPIAdapter:
         self.default_market = self.config.get("ptrade_api.default_market", "SZ")
         self.max_records = self.config.get("ptrade_api.max_records", 10000)
 
-        logger.info("PTrade API适配器初始化完成")
+        logger.info("PTrade API adapter initialized")
 
     def get_stock_list(self, market: str = None) -> pd.DataFrame:
         """
@@ -64,11 +64,11 @@ class PTradeAPIAdapter:
                 # 确保兼容PTrade格式
                 return self._format_stock_list(result)
             else:
-                logger.warning("API路由器返回非DataFrame格式")
+                logger.warning("API router returned non-DataFrame format")
                 return pd.DataFrame()
 
         except Exception as e:
-            logger.error(f"获取股票列表失败: {e}")
+            logger.error(f"retrieving stock list failed : {e}")
             return pd.DataFrame()
 
     def get_price(
@@ -116,11 +116,11 @@ class PTradeAPIAdapter:
                 # 确保兼容PTrade格式
                 return self._format_price_data(result)
             else:
-                logger.warning("API路由器返回非DataFrame格式")
+                logger.warning("API router returned non-DataFrame format")
                 return pd.DataFrame()
 
         except Exception as e:
-            logger.error(f"获取价格数据失败: {e}")
+            logger.error(f"retrieving price data failed : {e}")
             return pd.DataFrame()
 
     def get_fundamentals(
@@ -154,11 +154,11 @@ class PTradeAPIAdapter:
             if isinstance(result, pd.DataFrame):
                 return self._format_fundamentals(result)
             else:
-                logger.warning("API路由器返回非DataFrame格式")
+                logger.warning("API router returned non-DataFrame format")
                 return pd.DataFrame()
 
         except Exception as e:
-            logger.error(f"获取基本面数据失败: {e}")
+            logger.error(f"failed to retrieve fundamental data : {e}")
             return pd.DataFrame()
 
     def get_industry(
@@ -195,11 +195,11 @@ class PTradeAPIAdapter:
             if isinstance(result, pd.DataFrame):
                 return self._format_industry_data(result)
             else:
-                logger.warning("API路由器返回非DataFrame格式")
+                logger.warning("API router returned non-DataFrame format")
                 return pd.DataFrame()
 
         except Exception as e:
-            logger.error(f"获取行业分类失败: {e}")
+            logger.error(f"failed to retrieve industry classification : {e}")
             return pd.DataFrame()
 
     def get_etf_holdings(self, etf_symbol: str, date: str = None) -> pd.DataFrame:
@@ -230,11 +230,11 @@ class PTradeAPIAdapter:
             if isinstance(result, pd.DataFrame):
                 return self._format_etf_holdings(result)
             else:
-                logger.warning("API路由器返回非DataFrame格式")
+                logger.warning("API router returned non-DataFrame format")
                 return pd.DataFrame()
 
         except Exception as e:
-            logger.error(f"获取ETF成分股失败: {e}")
+            logger.error(f"failed to retrieve ETF constituent stocks : {e}")
             return pd.DataFrame()
 
     def get_technical_indicators(
@@ -279,11 +279,11 @@ class PTradeAPIAdapter:
             if isinstance(result, pd.DataFrame):
                 return self._format_technical_indicators(result)
             else:
-                logger.warning("API路由器返回非DataFrame格式")
+                logger.warning("API router returned non-DataFrame format")
                 return pd.DataFrame()
 
         except Exception as e:
-            logger.error(f"获取技术指标失败: {e}")
+            logger.error(f"failed to retrieve technical indicators : {e}")
             return pd.DataFrame()
 
     def _format_stock_list(self, df: pd.DataFrame) -> pd.DataFrame:

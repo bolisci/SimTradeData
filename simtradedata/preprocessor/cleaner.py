@@ -23,7 +23,7 @@ class DataCleaner:
             config: 配置对象
         """
         self.config = config or Config()
-        logger.info("数据清洗器初始化完成（简化版）")
+        logger.info("data cleaner initialized completed (simplified version )")
 
     def clean_data(
         self, raw_data: Dict[str, Any], symbol: str, frequency: str
@@ -40,15 +40,15 @@ class DataCleaner:
             Dict[str, Any]: 清洗后的数据
         """
         if not raw_data:
-            logger.warning(f"原始数据为空: {symbol}")
+            logger.warning(f"raw data is empty : {symbol}")
             return {}
 
         try:
-            logger.debug(f"开始清洗数据: {symbol} {frequency}")
+            logger.debug(f"starting clean data : {symbol} {frequency}")
 
             # 1. 基础验证
             if not self._validate_basic_structure(raw_data, symbol, frequency):
-                logger.warning(f"数据结构验证失败: {symbol}")
+                logger.warning(f"data structure validation failed : {symbol}")
                 return {}
 
             # 2. 数据类型转换
@@ -61,13 +61,13 @@ class DataCleaner:
             cleaned_data["quality_score"] = 100  # 简化质量评分
 
             logger.debug(
-                f"数据清洗完成: {symbol}, 质量评分: {cleaned_data.get('quality_score', 0)}"
+                f"data cleaning completed : {symbol}, quality 评分: {cleaned_data.get('quality_score', 0)}"
             )
 
             return cleaned_data
 
         except Exception as e:
-            logger.error(f"数据清洗失败 {symbol}: {e}")
+            logger.error(f"data clean failed {symbol}: {e}")
             return {}
 
     def _validate_basic_structure(
@@ -87,7 +87,7 @@ class DataCleaner:
                 return "data" in data and isinstance(data["data"], list)
 
         except Exception as e:
-            logger.error(f"数据结构验证失败 {symbol}: {e}")
+            logger.error(f"data structure validation failed {symbol}: {e}")
             return False
 
     def _convert_data_types(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -129,7 +129,7 @@ class DataCleaner:
             return cleaned_data
 
         except Exception as e:
-            logger.error(f"数据类型转换失败: {e}")
+            logger.error(f"data type converting failed : {e}")
             return data
 
     def _check_data_consistency(
@@ -151,27 +151,27 @@ class DataCleaner:
                     price <= 0
                     for price in [open_price, high_price, low_price, close_price]
                 ):
-                    logger.warning(f"价格数据异常: {symbol}")
+                    logger.warning(f"price data exception : {symbol}")
                     return {}
 
                 # 检查高低价关系
                 if high_price < low_price:
-                    logger.warning(f"高低价关系异常: {symbol}")
+                    logger.warning(f"high-low price relationship exception : {symbol}")
                     return {}
 
                 # 检查开盘价和收盘价是否在合理范围内
                 if not (low_price <= open_price <= high_price):
-                    logger.warning(f"开盘价异常: {symbol}")
+                    logger.warning(f"open price exception : {symbol}")
                     return {}
 
                 if not (low_price <= close_price <= high_price):
-                    logger.warning(f"收盘价异常: {symbol}")
+                    logger.warning(f"close price exception : {symbol}")
                     return {}
 
             return cleaned_data
 
         except Exception as e:
-            logger.error(f"数据一致性检查失败 {symbol}: {e}")
+            logger.error(f"data consistency check failed {symbol}: {e}")
             return data
 
     def get_cleaning_stats(self) -> Dict[str, Any]:

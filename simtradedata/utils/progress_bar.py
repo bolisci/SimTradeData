@@ -115,7 +115,7 @@ class SyncProgressBar:
     def log_phase_start(self, phase_name: str, desc: Optional[str] = None):
         """记录阶段开始"""
         if not self.disable_logs:
-            logger.info(f"🚀 {phase_name}: {desc or '开始'}")
+            logger.info(f"🚀 {phase_name}: {desc or ' starting '}")
 
     def log_phase_complete(
         self, phase_name: str, stats: Optional[Dict[str, Any]] = None

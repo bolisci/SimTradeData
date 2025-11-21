@@ -68,6 +68,8 @@ class HDF5Writer:
                 key,
                 data,
                 format="fixed",
+                complevel=9,
+                complib="blosc",
             )
 
         logger.info(
@@ -172,6 +174,8 @@ class HDF5Writer:
                 key,
                 data,
                 format="fixed",
+                complevel=9,
+                complib="blosc",
             )
 
         logger.info(
@@ -196,7 +200,9 @@ class HDF5Writer:
             store.put(
                 "stock_metadata",
                 metadata_df,
-                format="fixed",
+                format="table",
+                complevel=9,
+                complib="blosc",
             )
 
         logger.info(
@@ -229,6 +235,8 @@ class HDF5Writer:
                 key,
                 data,
                 format="fixed",
+                complevel=9,
+                complib="blosc",
             )
 
         logger.info(
@@ -259,6 +267,8 @@ class HDF5Writer:
                 key,
                 data,
                 format="fixed",
+                complevel=9,
+                complib="blosc",
             )
 
         logger.info(
@@ -292,12 +302,58 @@ class HDF5Writer:
                 symbol,
                 data,
                 format="fixed",
+                complevel=9,
+                complib="blosc",
             )
 
         logger.info(
             f"Wrote adjust factor for {symbol} to {self.ptrade_adj_pre_path}: "
             f"{len(data)} days"
         )
+
+    def write_trade_days(self, trade_days_df: pd.DataFrame, mode: str = "a") -> None:
+        """
+        Write trading days to ptrade_data.h5/trade_days
+
+        Args:
+            trade_days_df: DataFrame with trading dates
+            mode: 'a' for append, 'w' for overwrite
+        """
+        if trade_days_df.empty:
+            logger.warning("No trading days to write")
+            return
+
+        with pd.HDFStore(self.ptrade_data_path, mode=mode) as store:
+            store.put(
+                "trade_days",
+                trade_days_df,
+                format="fixed",
+                complevel=9,
+                complib="blosc",
+            )
+        logger.info(
+            f"Wrote {len(trade_days_df)} trading days to {self.ptrade_data_path}"
+        )
+
+    def write_global_metadata(self, metadata: pd.Series, mode: str = "a") -> None:
+        """
+        Write global metadata to ptrade_data.h5/metadata
+
+        Args:
+            metadata: Series containing global dataset info
+            mode: 'a' for append, 'w' for overwrite
+        """
+        if metadata.empty:
+            logger.warning("No global metadata to write")
+            return
+
+        with pd.HDFStore(self.ptrade_data_path, mode=mode) as store:
+            store.put(
+                "metadata",
+                metadata,
+                format="fixed",
+            )
+        logger.info(f"Wrote global metadata to {self.ptrade_data_path}")
 
     def write_all_for_stock(
         self,
@@ -307,7 +363,7 @@ class HDF5Writer:
         fundamentals_data: pd.DataFrame = None,
         adjust_factor: pd.Series = None,
         exrights_data: pd.DataFrame = None,
-        metadata: Dict = None,
+        metadata: Dict = None,  # Metadata is no longer written here
     ) -> None:
         """
         Write all data types for a single stock
@@ -322,20 +378,17 @@ class HDF5Writer:
             fundamentals_data: Fundamental financial data
             adjust_factor: Adjust factor series
             exrights_data: Exrights/dividend data
-            metadata: Stock metadata dict
+            metadata: (DEPRECATED) Stock metadata dict. This is no longer handled here.
         """
-        # Write to ptrade_data.h5 (market, exrights, metadata) in one session
-        has_ptrade_data = (
-            (market_data is not None and not market_data.empty)
-            or (exrights_data is not None and not exrights_data.empty)
-            or metadata
+        # Write to ptrade_data.h5 (market, exrights) in one session
+        has_ptrade_data = (market_data is not None and not market_data.empty) or (
+            exrights_data is not None and not exrights_data.empty
         )
 
         if has_ptrade_data:
             with pd.HDFStore(self.ptrade_data_path, mode="a") as store:
                 # Write market data
                 if market_data is not None and not market_data.empty:
-                    market_data = market_data.copy()
                     if not isinstance(market_data.index, pd.DatetimeIndex):
                         market_data.index = pd.to_datetime(market_data.index)
                     key = f"stock_data/{symbol}"
@@ -343,11 +396,12 @@ class HDF5Writer:
                         key,
                         market_data,
                         format="fixed",
+                        complevel=9,
+                        complib="blosc",
                     )
 
                 # Write exrights data
                 if exrights_data is not None and not exrights_data.empty:
-                    exrights_data = exrights_data.copy()
                     if not isinstance(exrights_data.index, pd.DatetimeIndex):
                         exrights_data.index = pd.to_datetime(exrights_data.index)
                     key = f"exrights/{symbol}"
@@ -355,25 +409,9 @@ class HDF5Writer:
                         key,
                         exrights_data,
                         format="fixed",
+                        complevel=9,
+                        complib="blosc",
                     )
-
-                # Write metadata
-                if metadata:
-                    metadata_df = pd.DataFrame([metadata], index=[symbol])
-                    metadata_df.index.name = "stock_code"
-                    # Note: Fixed format doesn't support append, use table format for metadata
-                    try:
-                        if "/stock_metadata" in store.keys():
-                            existing = store["stock_metadata"]
-                            updated = pd.concat(
-                                [existing[existing.index != symbol], metadata_df]
-                            )
-                            del store["stock_metadata"]
-                            store.put("stock_metadata", updated, format="table")
-                        else:
-                            store.put("stock_metadata", metadata_df, format="table")
-                    except Exception as e:
-                        logger.warning(f"Failed to update metadata for {symbol}: {e}")
 
         # Write to ptrade_fundamentals.h5 (valuation, fundamentals) in one session
         has_fundamentals = (
@@ -384,7 +422,6 @@ class HDF5Writer:
             with pd.HDFStore(self.ptrade_fundamentals_path, mode="a") as store:
                 # Write valuation data
                 if valuation_data is not None and not valuation_data.empty:
-                    valuation_data = valuation_data.copy()
                     if not isinstance(valuation_data.index, pd.DatetimeIndex):
                         valuation_data.index = pd.to_datetime(valuation_data.index)
                     key = f"valuation/{symbol}"
@@ -392,11 +429,12 @@ class HDF5Writer:
                         key,
                         valuation_data,
                         format="fixed",
+                        complevel=9,
+                        complib="blosc",
                     )
 
                 # Write fundamentals data
                 if fundamentals_data is not None and not fundamentals_data.empty:
-                    fundamentals_data = fundamentals_data.copy()
                     if not isinstance(fundamentals_data.index, pd.DatetimeIndex):
                         fundamentals_data.index = pd.to_datetime(
                             fundamentals_data.index
@@ -406,11 +444,12 @@ class HDF5Writer:
                         key,
                         fundamentals_data,
                         format="fixed",
+                        complevel=9,
+                        complib="blosc",
                     )
 
         # Write to ptrade_adj_pre.h5 (adjust factor)
         if adjust_factor is not None and not adjust_factor.empty:
-            adjust_factor = adjust_factor.copy()
             if not isinstance(adjust_factor.index, pd.DatetimeIndex):
                 adjust_factor.index = pd.to_datetime(adjust_factor.index)
             adjust_factor.name = "backward_a"
@@ -420,6 +459,8 @@ class HDF5Writer:
                     symbol,
                     adjust_factor,
                     format="fixed",
+                    complevel=9,
+                    complib="blosc",
                 )
 
         logger.info(f"Wrote all data for {symbol}")

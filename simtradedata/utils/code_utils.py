@@ -171,33 +171,34 @@ def chunk_list(items: list, chunk_size: int) -> list[list]:
     return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
-def retry_on_failure(func, max_retries: int = 3, delay: float = 5.0):
+def retry_on_failure(max_retries: int = 3, delay: float = 5.0):
     """
-    Decorator for retrying function on failure
+    Decorator factory for retrying a function on failure.
 
     Args:
-        func: Function to retry
-        max_retries: Maximum number of retries
-        delay: Delay between retries in seconds
+        max_retries (int): Maximum number of retries.
+        delay (float): Delay between retries in seconds.
 
     Returns:
-        Decorated function
+        A decorator.
     """
     import time
     from functools import wraps
 
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        last_exception = None
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    # logger.warning(f"Attempt {attempt + 1}/{max_retries} failed: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(delay)
+            raise last_exception
 
-        for attempt in range(max_retries):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                last_exception = e
-                if attempt < max_retries - 1:
-                    time.sleep(delay)
-                else:
-                    raise last_exception
+        return wrapper
 
-    return wrapper
+    return decorator

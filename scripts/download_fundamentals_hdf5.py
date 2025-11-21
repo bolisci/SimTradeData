@@ -21,14 +21,14 @@ from simtradedata.interfaces.ptrade_data_api import (
     get_fundamentals,
     get_trade_days,
 )
+from simtradedata.writers.h5_writer import HDF5Writer
 
 # ------------------------------ Configuration ------------------------------
 
 HDF5_FILE = "ptrade_fundamentals.h5"
 LOG_FILE = "fundamentals_download.log"
 
-HDF5_COMPLEVEL = 9
-HDF5_COMPLIB = "blosc"
+
 
 # Valuation fields (daily valuation data)
 VALUATION_FIELDS = [
@@ -340,77 +340,57 @@ def download_valuation_batch(
 # ------------------------------ Storage functions ------------------------------
 
 
-def load_existing_stocks():
-    """Load already downloaded stock list"""
-    hdf5_path = Path(HDF5_FILE)
+def load_existing_stocks(writer: HDF5Writer) -> set:
+    """Load already downloaded stock list using HDF5Writer"""
+    hdf5_path = writer.ptrade_fundamentals_path
     if not hdf5_path.exists():
         return set()
 
     try:
-        with pd.HDFStore(HDF5_FILE, mode="r") as store:
-            val_stocks = set(
-                key.split("/")[-1]
-                for key in store.keys()
-                if key.startswith("/valuation/")
-            )
-            fund_stocks = set(
-                key.split("/")[-1]
-                for key in store.keys()
-                if key.startswith("/fundamentals/")
-            )
-            # Only count as complete if both exist
-            return val_stocks & fund_stocks
+        val_stocks = writer.get_existing_stocks(file_type="valuation")
+        fund_stocks = writer.get_existing_stocks(file_type="fundamentals")
+        # Only count as complete if both exist
+        return set(val_stocks) & set(fund_stocks)
     except Exception as e:
         logger.warning("Read existing data failed: {}".format(str(e)))
         return set()
 
 
-def save_batch_to_disk(batch_data):
-    """Incremental save batch data to HDF5 (fast append mode, no compression)"""
+def save_batch_to_disk(batch_data, writer: HDF5Writer):
+    """Save batch data to HDF5 using HDF5Writer (with compression)"""
     if not batch_data:
         return
 
-    hdf5_path = Path(HDF5_FILE)
-    mode = "a" if hdf5_path.exists() else "w"
+    for stock, stock_data in batch_data.items():
+        # Save valuation (daily)
+        if "valuation" in stock_data:
+            df = stock_data["valuation"]
+            writer.write_valuation(stock, df)
 
-    # Download phase: no compression, fast write
-    with pd.HDFStore(HDF5_FILE, mode=mode) as store:
-        for stock, stock_data in batch_data.items():
-            # Save valuation (daily)
-            if "valuation" in stock_data:
-                df = stock_data["valuation"]
-                key = "valuation/{}".format(stock)
-                if key in store:
-                    del store[key]
-                store.put(key, df, format="fixed")
+        # Save fundamentals (quarterly)
+        if "fundamentals" in stock_data:
+            field_cache = stock_data["fundamentals"]
 
-            # Save fundamentals (quarterly)
-            if "fundamentals" in stock_data:
-                field_cache = stock_data["fundamentals"]
+            # Get all quarter time points
+            all_dates = set()
+            for field_dict in field_cache.values():
+                all_dates.update(field_dict.keys())
 
-                # Get all quarter time points
-                all_dates = set()
-                for field_dict in field_cache.values():
-                    all_dates.update(field_dict.keys())
+            if all_dates:
+                all_dates = sorted(list(all_dates))
+                dates_ts = pd.to_datetime(all_dates)
 
-                if all_dates:
-                    all_dates = sorted(list(all_dates))
-                    dates_ts = pd.to_datetime(all_dates)
+                # Build DataFrame
+                data_dict = {}
+                for field in FUNDAMENTAL_FIELDS_MAPPING.keys():
+                    field_data = field_cache.get(field, {})
+                    values = [field_data.get(d) for d in all_dates]
+                    data_dict[field] = values
 
-                    # Build DataFrame (fast mode, no sorting)
-                    data_dict = {}
-                    for field in FUNDAMENTAL_FIELDS_MAPPING.keys():
-                        field_data = field_cache.get(field, {})
-                        values = [field_data.get(d) for d in all_dates]
-                        data_dict[field] = values
+                df = pd.DataFrame(data_dict, index=dates_ts)
+                df.index.name = "end_date"
 
-                    df = pd.DataFrame(data_dict, index=dates_ts)
-                    df.index.name = "end_date"
-
-                    key = "fundamentals/{}".format(stock)
-                    if key in store:
-                        del store[key]
-                    store.put(key, df, format="fixed")
+                writer.write_fundamentals(stock, df)
 
     logger.info("Saved batch data: {} stocks".format(len(batch_data)))
 
@@ -461,6 +441,13 @@ def download_all_data(incremental_days=None):
     print("\nDate range: {} ~ {}".format(start_date_str, end_date_str))
     print("Year range: {} ~ {}".format(start_year, end_year))
 
+    # Initialize HDF5 writer
+    writer = HDF5Writer(output_dir=".") # This script creates ptrade_fundamentals.h5
+    # Ensure the file is ready, potentially clearing old data if not incremental
+    if not incremental_days and writer.ptrade_fundamentals_path.exists():
+        writer.ptrade_fundamentals_path.unlink()
+        logger.info(f"Removed existing {writer.ptrade_fundamentals_path} for full download.")
+
     # Get trading calendar (for valuation)
     print("\nGetting trading calendar...")
     trading_days = get_trade_days(start_date_str, end_date_str)
@@ -472,7 +459,7 @@ def download_all_data(incremental_days=None):
 
     # For incremental mode, load existing stocks
     if incremental_days and Path(HDF5_FILE).exists():
-        existing_stocks = load_existing_stocks()
+        existing_stocks = load_existing_stocks(writer)
         if existing_stocks:
             stock_pool = sorted(list(existing_stocks))
             print(
@@ -514,7 +501,7 @@ def download_all_data(incremental_days=None):
         return
 
     # Load already downloaded stocks
-    existing_stocks = load_existing_stocks()
+    existing_stocks = load_existing_stocks(writer)
     need_download = [s for s in stock_pool if s not in existing_stocks]
 
     # Use unified batch size (ensure checkpoint batch boundaries consistent)
@@ -700,122 +687,33 @@ def download_all_data(incremental_days=None):
 
         # Save each batch (checkpoint support)
         if all_data:
-            save_batch_to_disk(all_data)
+            save_batch_to_disk(all_data, writer)
             all_data.clear()  # Clear memory
             if (batch_idx + 1) % 10 == 0:
                 print("\nSaved {} batches".format(batch_idx + 1))
 
-    print("\n\n" + "=" * 70)
-    print("Download complete, starting HDF5 optimization...")
-    print("=" * 70)
 
-    # Final optimization: sort, type conversion, compression
-    hdf5_path = Path(HDF5_FILE)
-    if hdf5_path.exists():
-        print("Reading original data...")
-        temp_file = HDF5_FILE + ".optimized.tmp"
-
-        # Read all data
-        all_stocks = {}
-        with pd.HDFStore(HDF5_FILE, mode="r") as old_store:
-            val_keys = sorted(
-                [k for k in old_store.keys() if k.startswith("/valuation/")]
-            )
-            fund_keys = sorted(
-                [k for k in old_store.keys() if k.startswith("/fundamentals/")]
-            )
-
-            print("Reading valuation data: {} stocks".format(len(val_keys)))
-            for key in val_keys:
-                stock = key.split("/")[-1]
-                if stock not in all_stocks:
-                    all_stocks[stock] = {}
-                all_stocks[stock]["valuation"] = old_store[key]
-
-            print("Reading fundamentals data: {} stocks".format(len(fund_keys)))
-            for key in fund_keys:
-                stock = key.split("/")[-1]
-                if stock not in all_stocks:
-                    all_stocks[stock] = {}
-                all_stocks[stock]["fundamentals"] = old_store[key]
-
-        # Sort by stock code and rewrite (with compression)
-        print("Sorting and compressing write...")
-        sorted_stocks = sorted(all_stocks.keys())
-
-        with pd.HDFStore(
-            temp_file, mode="w", complevel=HDF5_COMPLEVEL, complib=HDF5_COMPLIB
-        ) as new_store:
-            for idx, stock in enumerate(sorted_stocks):
-                stock_data = all_stocks[stock]
-
-                # Save valuation (sort + type conversion)
-                if "valuation" in stock_data:
-                    df = stock_data["valuation"].sort_index()
-                    for col in df.columns:
-                        df[col] = df[col].astype("float64")
-                    key = "valuation/{}".format(stock)
-                    new_store.put(key, df, format="fixed")
-
-                # Save fundamentals (sort + type conversion)
-                if "fundamentals" in stock_data:
-                    df = stock_data["fundamentals"].sort_index()
-                    for col in df.columns:
-                        df[col] = pd.to_numeric(df[col], errors="coerce")
-                    key = "fundamentals/{}".format(stock)
-                    new_store.put(key, df, format="fixed")
-
-                # Progress display
-                if (idx + 1) % 100 == 0:
-                    print(
-                        "\r  Optimization progress: {}/{}".format(
-                            idx + 1, len(sorted_stocks)
-                        ),
-                        end="",
-                    )
-
-        print("\r  Optimization complete: {} stocks".format(len(sorted_stocks)))
-
-        # Replace original file
-        import os
-        import shutil
-
-        old_size = os.path.getsize(HDF5_FILE) / (1024 * 1024)
-        shutil.move(temp_file, HDF5_FILE)
-        new_size = os.path.getsize(HDF5_FILE) / (1024 * 1024)
-
-        print("\nOptimization result:")
-        print("  Original size: {:.1f} MB".format(old_size))
-        print("  After compression: {:.1f} MB".format(new_size))
-        print(
-            "  Compression ratio: {:.1f}%".format(
-                (1 - new_size / old_size) * 100 if old_size > 0 else 0
-            )
-        )
 
     print("\n" + "=" * 70)
     print("All complete")
     print("=" * 70)
 
     # Display file size and statistics
-    hdf5_path = Path(HDF5_FILE)
+    hdf5_path = writer.ptrade_fundamentals_path
     if hdf5_path.exists():
         file_size = hdf5_path.stat().st_size / (1024 * 1024)
-        print("Data file: {}".format(HDF5_FILE))
+        print("Data file: {}".format(hdf5_path))
         print("File size: {:.1f} MB".format(file_size))
         print("\nData structure:")
         print("  /valuation/{{stock}} - daily valuation data")
         print("  /fundamentals/{{stock}} - quarterly financial indicators")
 
         # Count actually saved stocks
-        with pd.HDFStore(HDF5_FILE, mode="r") as store:
-            val_count = len([k for k in store.keys() if k.startswith("/valuation/")])
-            fund_count = len(
-                [k for k in store.keys() if k.startswith("/fundamentals/")]
-            )
-            print("\nActually saved:")
-            print("  Valuation: {} stocks".format(val_count))
-            print("  Fundamentals: {} stocks".format(fund_count))
+        val_count = len(writer.get_existing_stocks(file_type="valuation"))
+        fund_count = len(writer.get_existing_stocks(file_type="fundamentals"))
+        print("\nActually saved:")
+        print("  Valuation: {} stocks".format(val_count))
+        print("  Fundamentals: {} stocks".format(fund_count))
 
 
 if __name__ == "__main__":

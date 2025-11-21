@@ -83,15 +83,6 @@ class DataConverter:
         if df.empty:
             return df
 
-        # Strict validation: ensure we have expected raw fields
-        expected_fields = ["date", "open", "high", "low", "close", "volume", "amount"]
-        missing_fields = [f for f in expected_fields if f not in df.columns]
-        if missing_fields:
-            raise ValueError(
-                f"Missing expected market data fields: {missing_fields}. "
-                f"Got columns: {list(df.columns)}"
-            )
-
         # Ensure datetime index
         if not isinstance(df.index, pd.DatetimeIndex):
             if "date" in df.columns:
@@ -101,19 +92,18 @@ class DataConverter:
         # Normalize datetime to remove time component (SimTradeLab uses date only)
         df.index = df.index.normalize()
 
-        # Select and rename required columns
-        result = pd.DataFrame(index=df.index)
+        # Efficiently select and rename columns
+        # Create a map of existing source columns to target names
+        rename_map = {
+            src: tgt
+            for src, tgt in self.MARKET_FIELD_MAP.items()
+            if src in df.columns and src != "date"
+        }
+        result = df.rename(columns=rename_map)
 
-        for src_field, tgt_field in self.MARKET_FIELD_MAP.items():
-            if src_field in df.columns and src_field != "date":
-                result[tgt_field] = df[src_field]
-            elif src_field == "amount" and "amount" in df.columns:
-                result["money"] = df["amount"]
-
-        # Ensure column order matches SimTradeLab format
-        # SimTradeLab uses: close, open, high, low, volume, money
+        # Ensure all required columns are present, and in the correct order
         column_order = ["close", "open", "high", "low", "volume", "money"]
-        result = result[[col for col in column_order if col in result.columns]]
+        result = result.reindex(columns=column_order)
 
         # Convert to appropriate data types
         for col in result.columns:
@@ -213,30 +203,32 @@ class DataConverter:
         Returns:
             DataFrame with 23 fundamental indicators
         """
-        # Merge all dataframes on statDate (quarter end date)
-        dfs = []
-
+        # Prepare a list of dataframes to merge
+        dfs_to_merge = []
         for df in [profit_df, operation_df, growth_df, balance_df, cash_flow_df]:
             if not df.empty and "statDate" in df.columns:
-                df = df.copy()
-                df["end_date"] = pd.to_datetime(df["statDate"])
-                df.set_index("end_date", inplace=True)
-                dfs.append(df)
+                df_copy = df.copy()
+                df_copy["end_date"] = pd.to_datetime(df_copy["statDate"])
+                df_copy.set_index("end_date", inplace=True)
+                # Drop original statDate to avoid duplication
+                dfs_to_merge.append(df_copy.drop(columns=["statDate"]))
 
-        if not dfs:
+        if not dfs_to_merge:
             return pd.DataFrame()
 
-        # Merge all DataFrames
-        result = dfs[0]
-        for df in dfs[1:]:
-            result = result.join(df, how="outer", rsuffix="_dup")
+        # Efficiently merge all DataFrames at once
+        result = pd.concat(dfs_to_merge, axis=1)
+
+        # Remove duplicated columns from join artifacts
+        result = result.loc[:, ~result.columns.duplicated()]
 
         # Map fields to PTrade names
-        mapped_result = pd.DataFrame(index=result.index)
-
-        for src_field, tgt_field in self.FUNDAMENTAL_FIELD_MAP.items():
-            if src_field in result.columns:
-                mapped_result[tgt_field] = result[src_field]
+        rename_map = {
+            src: tgt
+            for src, tgt in self.FUNDAMENTAL_FIELD_MAP.items()
+            if src in result.columns
+        }
+        mapped_result = result.rename(columns=rename_map)
 
         # Add TTM fields (calculated from quarterly data)
         # TODO: Implement TTM calculations for fields ending with _ttm
@@ -251,7 +243,7 @@ class DataConverter:
             if field not in mapped_result.columns:
                 mapped_result[field] = np.nan
 
-        # Add missing fields with NaN
+        # Add missing fields with NaN and ensure correct order
         ptrade_fields = [
             "accounts_receivables_turnover_rate",
             "basic_eps_yoy",
@@ -277,22 +269,15 @@ class DataConverter:
             "total_asset_grow_rate",
             "total_asset_turnover_rate",
         ]
-
-        for field in ptrade_fields:
-            if field not in mapped_result.columns:
-                mapped_result[field] = np.nan
-
-        # Select PTrade fields in order
-        mapped_result = mapped_result[
-            [col for col in ptrade_fields if col in mapped_result.columns]
-        ]
+        # Reindex ensures all required columns are present (with NaN if missing) and in order
+        final_result = mapped_result.reindex(columns=ptrade_fields)
 
         logger.info(
-            f"Converted fundamentals for {symbol}: {len(mapped_result)} quarters, "
-            f"{len(mapped_result.columns)} indicators"
+            f"Converted fundamentals for {symbol}: {len(final_result)} quarters, "
+            f"{len(final_result.columns)} indicators"
         )
 
-        return mapped_result
+        return final_result
 
     def convert_adjust_factor(self, df: pd.DataFrame, symbol: str) -> pd.Series:
         """

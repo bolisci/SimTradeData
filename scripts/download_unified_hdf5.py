@@ -7,6 +7,7 @@ Compatible with PTrade data format
 import json
 import logging
 import warnings
+
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -34,6 +35,7 @@ OUTPUT_FILE = "ptrade_data.h5"
 LOG_FILE = "download_unified.log"
 CHECKPOINT_INTERVAL = 100
 
+
 HDF5_COMPLEVEL = 9
 HDF5_COMPLIB = "blosc"
 
@@ -43,7 +45,7 @@ REQUIRED_PRICE_FIELDS = ["close", "open", "high", "low", "volume", "money"]
 # Date range configuration
 START_DATE = "2017-01-01"
 END_DATE = None  # None means use current date
-INCREMENTAL_DAYS = None  # Set to N to only update last N days (for incremental updates)
+INCREMENTAL_DAYS = None  # Set to N to only update last N days for incremental updates)
 
 # Logging
 logging.basicConfig(
@@ -124,6 +126,9 @@ def download_stock_exrights(stock):
     except Exception as e:
         logger.error("Ex-rights download failed: {} - {}".format(stock, e))
     return None
+
+
+
 
 
 def download_index_constituents(sample_dates):
@@ -305,6 +310,9 @@ def download_trade_days(start_date, end_date):
 
 
 # Main download process
+from simtradedata.writers.h5_writer import HDF5Writer
+
+# Main download process
 def download_all_data(incremental_days=None):
     """
     Download all data to single HDF5 file
@@ -326,175 +334,147 @@ def download_all_data(incremental_days=None):
         else datetime.strptime(END_DATE, "%Y-%m-%d").date()
     )
 
-    # For incremental mode, adjust start_date
+    # Initialize HDF5 writer
+    writer = HDF5Writer(output_dir=".")
+    
+    # For a full download, we don't delete the file, allowing for resume.
+    # The user should delete the file manually if a full-from-scratch download is needed.
+    if not incremental_days:
+        print("Full download mode. Will resume if file exists.")
+    
+    start_date = datetime.strptime(START_DATE, "%Y-%m-%d").date()
     if incremental_days:
+        # For incremental mode, only fetch data for the last N days
         start_date = end_date - timedelta(days=incremental_days)
         print("\nIncremental mode: updating last {} days".format(incremental_days))
-    else:
-        start_date = datetime.strptime(START_DATE, "%Y-%m-%d").date()
 
     start_date_str = start_date.strftime("%Y-%m-%d")
     end_date_str = end_date.strftime("%Y-%m-%d")
 
     print("\nDate range: {} ~ {}".format(start_date_str, end_date_str))
 
-    # Get stock pool
-    print("\nGetting stock pool...")
-    stock_pool = []
+    # --- Get Full Stock Pool ---
+    print("\nGetting full stock pool...")
+    full_stock_pool = []
+    
+    # To get the full list, we sample across the entire history
+    full_start_date = datetime.strptime(START_DATE, "%Y-%m-%d").date()
+    sample_dates = (
+        pd.date_range(start=full_start_date, end=end_date, freq="QS")
+        .to_pydatetime()
+        .tolist()
+    )
+    if end_date not in [d.date() for d in sample_dates]:
+        sample_dates.append(datetime.combine(end_date, datetime.min.time()))
 
-    # For incremental mode, load existing stocks from HDF5
-    if incremental_days and Path(OUTPUT_FILE).exists():
-        print("Loading existing stocks from {}...".format(OUTPUT_FILE))
+    all_stocks = set()
+    for date_obj in tqdm(sample_dates, desc="Getting full stock list"):
+        date_str = date_obj.strftime("%Y-%m-%d")
         try:
-            with pd.HDFStore(OUTPUT_FILE, mode="r") as store:
-                existing_keys = [
-                    k for k in store.keys() if k.startswith("/stock_data/")
-                ]
-                stock_pool = sorted([k.split("/")[-1] for k in existing_keys])
-                print("  Found {} existing stocks".format(len(stock_pool)))
+            stocks = get_Ashares(date_str)
+            if stocks:
+                all_stocks.update(stocks)
         except Exception as e:
-            logger.error("Failed to load existing stocks: {}".format(e))
-            print("  Failed to load existing stocks, will fetch from API")
-            stock_pool = []
-
-    # If not incremental or failed to load, fetch from API
-    if not stock_pool:
-        # Calculate sample dates (quarterly sampling)
-        sample_dates = (
-            pd.date_range(start=start_date, end=end_date, freq="QS")
-            .to_pydatetime()
-            .tolist()
-        )
-        # Ensure start and end dates are included
-        sample_dates_set = set(d.date() for d in sample_dates)
-        if start_date not in sample_dates_set:
-            sample_dates.insert(0, datetime.combine(start_date, datetime.min.time()))
-        if end_date not in sample_dates_set:
-            sample_dates.append(datetime.combine(end_date, datetime.min.time()))
-
-        # Convert to date objects
-        sample_dates.sort()
-
-        print(
-            "\nSampling strategy: Quarterly sampling, {} sampling points".format(
-                len(sample_dates)
-            )
-        )
-        print("  First sample: {}".format(sample_dates[0]))
-        print("  Last sample: {}".format(sample_dates[-1]))
-
-        all_stocks = set()
-        for date_obj in tqdm(sample_dates, desc="Getting stock pool"):
-            date_str = date_obj.strftime("%Y-%m-%d")
-            try:
-                stocks = get_Ashares(date_str)
-                if stocks:
-                    all_stocks.update(stocks)
-            except Exception as e:
-                logger.error("Failed to get stock pool: {} - {}".format(date_str, e))
-
-        stock_pool = sorted(list(all_stocks))
-        print("  Stock pool: {} stocks".format(len(stock_pool)))
+            logger.error("Failed to get stock pool: {} - {}".format(date_str, e))
+    
+    full_stock_pool = sorted(list(all_stocks))
+    print("  Full stock pool: {} stocks".format(len(full_stock_pool)))
+    
+    # --- Determine Stocks to Download ---
+    existing_stocks = set(writer.get_existing_stocks(file_type="market"))
+    
+    if incremental_days:
+        # In incremental mode, we only process stocks that are already in the file.
+        stock_pool = sorted(list(existing_stocks))
+        need_to_download = stock_pool
+        print(f"\nIncremental mode: processing {len(stock_pool)} existing stocks.")
     else:
-        # For incremental mode, still need sample_dates for index constituents
-        sample_dates = [end_date]
+        # In full download mode, download all stocks not already present.
+        stock_pool = full_stock_pool
+        need_to_download = [s for s in stock_pool if s not in existing_stocks]
+        print(f"\nFull mode: {len(existing_stocks)} stocks already exist.")
+        print(f"  Need to download {len(need_to_download)} new stocks.")
 
-    logger.info(f"Stock pool size: {len(stock_pool)}")
+    if not need_to_download:
+        print("\nAll required stock data already exists. Nothing to download.")
+    else:
+        # --- Main Download Loop ---
+        fetcher = BaoStockFetcher()
+        fetcher.login()
+        try:
+            # Download and write data serially
+            print("\nDownloading and writing stock data...")
+            metadata_list = [] # Still collect metadata to write at the end
+            success = 0
+            fail = 0
 
-    # Initialize BaoStock Fetcher
-    with BaoStockFetcher() as fetcher:
-        # Download index constituents
-        index_constituents = download_index_constituents(sample_dates)
+            for stock in tqdm(need_to_download, desc="Downloading stock data"):
+                try:
+                    price_df = download_stock_price(stock, start_date_str, end_date_str)
+                    if price_df is not None:
+                        writer.write_market_data(stock, price_df, mode='a')
 
-        # Download stock status history (batch processing to avoid timeout)
-        stock_status_history = download_stock_status_history(
-            stock_pool, sample_dates, start_date_str, end_date_str, fetcher
-        )
-
-        # Download trading calendar
-        print("\nDownloading trading calendar...")
-        trade_days_df = download_trade_days(start_date, end_date)
-
-        # Download data (temporary storage)
-        price_data = {}
-        metadata_list = []
-        exrights_data = {}
-
-        success = 0
-        fail = 0
-
-        for stock in tqdm(stock_pool, desc="Downloading stock data"):
-            logger.info(f"Processing stock: {stock}")
-            try:
-                # Download price
-                price_df = download_stock_price(stock, start_date_str, end_date_str)
-                if price_df is not None:
-                    price_data[stock] = price_df
-                    logger.info(f"Downloaded price for {stock}: {len(price_df)} rows")
-                else:
-                    logger.warning(f"No price data for {stock}")
-
-                # Download metadata
-                meta = download_stock_metadata(stock)
-                metadata_list.append(
-                    {
+                    meta = download_stock_metadata(stock)
+                    metadata_list.append({
                         "stock_code": stock,
                         "stock_name": meta.get("stock_name"),
                         "listed_date": meta.get("listed_date"),
                         "de_listed_date": meta.get("de_listed_date"),
-                        "blocks": (
-                            json.dumps(meta.get("blocks", {}), ensure_ascii=False)
-                            if meta.get("blocks")
-                            else None
-                        ),
+                        "blocks": json.dumps(meta.get("blocks", {}), ensure_ascii=False) if meta.get("blocks") else None,
                         "has_info": meta.get("has_info", False),
-                    }
-                )
+                    })
 
-                # Download exrights
-                ex_df = download_stock_exrights(stock)
-                if ex_df is not None:
-                    exrights_data[stock] = ex_df
-                    logger.info(
-                        f"Downloaded exrights for {stock}: {len(ex_df)} rows"
-                    )
-                else:
-                    logger.warning(f"No exrights data for {stock}")
+                    ex_df = download_stock_exrights(stock)
+                    if ex_df is not None:
+                        writer.write_exrights(stock, ex_df, mode='a')
+                    
+                    success += 1
+                except Exception as e:
+                    logger.error("Download failed for {}: {}".format(stock, e))
+                    fail += 1
+            
+            print(f"\nDownload summary: {success} success, {fail} failed.")
 
-                success += 1
+        finally:
+            fetcher.logout()
 
-            except Exception as e:
-                logger.error("Download failed: {} - {}".format(stock, e))
-                fail += 1
-
-    print("\n\nDownload complete, starting save and optimization...")
-
-    # Save to HDF5 (sorted)
-    with pd.HDFStore(
-        OUTPUT_FILE, mode="w", complevel=HDF5_COMPLEVEL, complib=HDF5_COMPLIB
-    ) as store:
-
-        # 1. Save price (sorted by stock code)
-        print("\nSaving price data...")
-        for stock in tqdm(sorted(price_data.keys()), desc="Saving price data"):
-            key = "/stock_data/{}".format(stock)
-            store.put(key, price_data[stock], format="fixed")
-
-        # 2. Save exrights (sorted by stock code)
-        print("Saving exrights data...")
-        for stock in tqdm(sorted(exrights_data.keys()), desc="Saving exrights data"):
-            key = "/exrights/{}".format(stock)
-            store.put(key, exrights_data[stock], format="fixed")
-
-        # 3. Save metadata (single DataFrame, sorted)
-        print("Saving metadata...")
-        if metadata_list:
-            meta_df = pd.DataFrame(metadata_list)
+    # --- Update Metadata and Other Global Data ---
+    # This part runs regardless of whether new stocks were downloaded,
+    # to ensure metadata is up-to-date.
+    
+    print("\nUpdating metadata and global data...")
+    fetcher = BaoStockFetcher()
+    fetcher.login()
+    try:
+        # Get metadata for ALL stocks in the pool (new and old)
+        all_metadata_list = []
+        print("Fetching metadata for all stocks...")
+        for stock in tqdm(stock_pool, desc="Fetching metadata"):
+            meta = download_stock_metadata(stock)
+            all_metadata_list.append({
+                "stock_code": stock,
+                "stock_name": meta.get("stock_name"),
+                "listed_date": meta.get("listed_date"),
+                "de_listed_date": meta.get("de_listed_date"),
+                "blocks": json.dumps(meta.get("blocks", {}), ensure_ascii=False) if meta.get("blocks") else None,
+                "has_info": meta.get("has_info", False),
+            })
+        
+        if all_metadata_list:
+            meta_df = pd.DataFrame(all_metadata_list)
             meta_df.set_index("stock_code", inplace=True)
             meta_df = meta_df.sort_index()
-            store.put("stock_metadata", meta_df, format="table")
+            # Use 'w' mode for metadata to overwrite with the complete list
+            writer.write_stock_metadata(meta_df, mode='w')
 
-        # 4. Save benchmark
+        # Download other global data
+        index_constituents = download_index_constituents(sample_dates)
+        trade_days_df = download_trade_days(start_date, end_date)
+        stock_status_history = download_stock_status_history(
+            stock_pool, sample_dates, start_date_str, end_date_str, fetcher
+        )
+        
+        # Download and write benchmark
         print("Saving benchmark...")
         try:
             benchmark = get_price(
@@ -506,31 +486,23 @@ def download_all_data(incremental_days=None):
                 fq="none",
             )
             if benchmark is not None:
-                if isinstance(benchmark, dict):
-                    benchmark = pd.DataFrame(benchmark)
-                store.put("benchmark", benchmark, format="fixed")
-        except:
-            logger.warning("Benchmark download failed")
+                 # Use 'w' mode to overwrite benchmark
+                writer.write_benchmark(benchmark, mode='w')
+        except Exception as e:
+            logger.warning(f"Benchmark download failed: {e}")
 
-        # 5. Save trading calendar
-        print("Saving trading calendar...")
+        # Save trading calendar and global metadata
         if trade_days_df is not None:
-            store.put("trade_days", trade_days_df, format="fixed")
+            writer.write_trade_days(trade_days_df, mode='w')
 
-        # 6. Save global metadata
-        print("Saving global metadata...")
-
-        # Serialize large dicts to JSON
         global_meta = {
             "download_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "start_date": start_date_str,
             "end_date": end_date_str,
             "stock_count": len(stock_pool),
             "sample_count": len(sample_dates),
-            "format_version": 3,  # Version 3: quarterly sampling + trading calendar
+            "format_version": 3,
         }
-
-        # Add index_constituents and stock_status_history (serialized to JSON)
         if index_constituents:
             global_meta["index_constituents"] = json.dumps(
                 index_constituents, ensure_ascii=False
@@ -539,40 +511,26 @@ def download_all_data(incremental_days=None):
             global_meta["stock_status_history"] = json.dumps(
                 stock_status_history, ensure_ascii=False
             )
-
-        # Save as Series
         meta_series = pd.Series(global_meta)
-        store.put("metadata", meta_series, format="fixed")
+        writer.write_global_metadata(meta_series, mode='w')
+
+    finally:
+        fetcher.logout()
 
     # Statistics
-    file_size = Path(OUTPUT_FILE).stat().st_size / (1024 * 1024)
+    file_size = Path(OUTPUT_FILE).stat().st_size / (1024 * 1024) if Path(OUTPUT_FILE).exists() else 0
 
     print("\n" + "=" * 70)
     print("Complete")
     print("=" * 70)
-    print("Success: {} Failed: {}".format(success, fail))
     print("Output file: {}".format(OUTPUT_FILE))
     print("File size: {:.1f} MB".format(file_size))
-    print("\nData structure:")
-    print("  /stock_data/{{symbol}} - {} stocks price".format(len(price_data)))
-    print("  /exrights/{{symbol}} - {} stocks exrights".format(len(exrights_data)))
-    print("  /stock_metadata - metadata DataFrame")
-    print("  /benchmark - benchmark data")
-    print("  /metadata - global metadata")
 
-    # Count stocks missing info
-    if metadata_list:
-        missing_info = [m for m in metadata_list if not m.get("has_info", False)]
-        if missing_info:
-            print(
-                "\nWarning: {} stocks missing basic info (may be delisted)".format(
-                    len(missing_info)
-                )
-            )
-            print(
-                "Recommend checking price data completeness for these stocks in backtesting"
-            )
-
+    if stock_pool:
+        missing_info_stocks = writer.get_existing_stocks(file_type="market")
+        # A simple check, can be improved
+        print(f"\nTotal stocks in file: {len(missing_info_stocks)}")
+        
     print("\nNote: valuation data needs to be downloaded separately")
 
 

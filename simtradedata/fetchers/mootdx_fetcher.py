@@ -61,8 +61,9 @@ class MootdxFetcher:
                 market="std",
                 timeout=self.timeout,
                 quiet=True,  # Suppress mootdx logs
+                multithread=True,  # Enable multithreading
             )
-            logger.info("Mootdx client initialized")
+            logger.info("Mootdx client initialized with multithreading")
         return self._client
 
     def login(self):
@@ -127,28 +128,46 @@ class MootdxFetcher:
         # Parse date range
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        days_diff = (end_dt - start_dt).days
 
-        # Estimate required offset (bars are returned from newest to oldest)
-        # Daily data: ~250 trading days per year
-        # Add buffer for weekends/holidays
-        estimated_bars = int(days_diff * 1.5)
-        offset = max(estimated_bars, 100)  # At least 100 bars
+        # Fetch data in chunks to overcome the 800-bar limit
+        all_data = []
+        offset = 0
+        chunk_size = 800
 
-        # Fetch data
-        df = client.bars(
-            symbol=code,
-            frequency=frequency,
-            start=0,
-            offset=min(offset, 800),  # Mootdx limit
-        )
+        while True:
+            df_chunk = client.bars(
+                symbol=code, frequency=frequency, start=offset, offset=chunk_size
+            )
 
-        if df is None or df.empty:
+            if df_chunk is None or df_chunk.empty:
+                # No more data
+                break
+
+            all_data.append(df_chunk)
+
+            # Check if we have fetched enough data
+            # Data is returned from newest to oldest
+            oldest_date_in_chunk = df_chunk.index.min()
+            if oldest_date_in_chunk <= start_dt:
+                break
+
+            offset += chunk_size
+
+        if not all_data:
             logger.warning(f"No market data found for {symbol}")
             return pd.DataFrame()
 
-        # Filter by date range
+        # Concatenate all chunks
+        df = pd.concat(all_data)
+        # Remove duplicate index entries, keeping the first occurrence
+        df = df[~df.index.duplicated(keep="first")]
+
+        # Filter by the exact date range
         df = df.loc[(df.index >= start_dt) & (df.index <= end_dt)]
+
+        if df.empty:
+            logger.warning(f"No market data found for {symbol} in the given date range")
+            return pd.DataFrame()
 
         # Select and rename columns to match BaoStock format
         # Mootdx returns: open, close, high, low, vol, amount, volume

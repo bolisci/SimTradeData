@@ -11,6 +11,7 @@ from typing import Optional
 import baostock as bs
 import pandas as pd
 
+from simtradedata.fetchers.baostock_fetcher import BaoStockFetcher
 from simtradedata.utils.code_utils import convert_from_ptrade_code, retry_on_failure
 
 logger = logging.getLogger(__name__)
@@ -34,52 +35,16 @@ UNIFIED_DAILY_FIELDS = [
 ]
 
 
-class UnifiedDataFetcher:
+class UnifiedDataFetcher(BaoStockFetcher):
     """
     Fetch all daily data types in a single API call
-    
+
     This fetcher optimizes BaoStock API usage by fetching market data,
     valuation data, and status data in one query_history_k_data_plus call.
+
+    Inherits from BaoStockFetcher to share the global BaoStock session.
     """
-    
-    def __init__(self):
-        self._logged_in = False
-    
-    def login(self):
-        """Login to BaoStock"""
-        if not self._logged_in:
-            lg = bs.login()
-            if lg.error_code != "0":
-                raise ConnectionError(f"BaoStock login failed: {lg.error_msg}")
-            self._logged_in = True
-            logger.info("BaoStock login successful")
-    
-    def logout(self):
-        """Logout from BaoStock"""
-        if self._logged_in:
-            try:
-                bs.logout()
-            except:
-                # Ignore all logout errors - connection may already be closed
-                pass
-            finally:
-                self._logged_in = False
-    
-    def __enter__(self):
-        self.login()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.logout()
-        return False
-    
-    def __del__(self):
-        """Destructor to ensure logout on object deletion"""
-        try:
-            self.logout()
-        except:
-            pass
-    
+
     def fetch_unified_daily_data(
         self,
         symbol: str,

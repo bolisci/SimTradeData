@@ -94,7 +94,7 @@ def convert_from_ptrade_code(code: str, target_source: str) -> str:
     return code
 
 
-def retry_on_failure(max_retries: int = 3, delay: float = 5.0):
+def retry_on_failure(max_retries: int = 1, delay: float = 0.0):
     """
     Decorator factory for retrying a function on failure.
 

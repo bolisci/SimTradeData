@@ -8,12 +8,13 @@ from datetime import datetime
 import baostock as bs
 import pandas as pd
 
+from simtradedata.fetchers.base_fetcher import BaseFetcher
 from simtradedata.utils.code_utils import convert_from_ptrade_code, retry_on_failure
 
 logger = logging.getLogger(__name__)
 
 
-class BaoStockFetcher:
+class BaoStockFetcher(BaseFetcher):
     """
     Fetch data from BaoStock API
 
@@ -25,47 +26,31 @@ class BaoStockFetcher:
     - Dividend data
     """
 
-    def __init__(self):
-        self._logged_in = False
+    # Class-level login state tracking (BaoStock uses global session)
+    _bs_logged_in = False
+    _bs_login_count = 0
 
-    def login(self):
-        """Login to BaoStock"""
-        if not self._logged_in:
+    def _do_login(self):
+        """BaoStock-specific login implementation"""
+        # BaoStock uses a global session, only login once
+        if not BaoStockFetcher._bs_logged_in:
             lg = bs.login()
             if lg.error_code != "0":
                 raise ConnectionError(f"BaoStock login failed: {lg.error_msg}")
-            self._logged_in = True
-            logger.info("BaoStock login successful")
+            BaoStockFetcher._bs_logged_in = True
+        BaoStockFetcher._bs_login_count += 1
 
-    def logout(self):
-        """Logout from BaoStock"""
-        if self._logged_in:
-            try:
-                bs.logout()
-            except:
-                # Ignore all logout errors - connection may already be closed
-                pass
-            finally:
-                self._logged_in = False
-                logger.info("BaoStock logout successful")
-
-    def __enter__(self):
-        self.login()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.logout()
-        return False  # Don't suppress exceptions
-
-    def __del__(self):
-        """Destructor to ensure logout on object deletion"""
-        try:
-            self.logout()
-        except:
-            pass  # Ignore errors in destructor
+    def _do_logout(self):
+        """BaoStock-specific logout implementation"""
+        BaoStockFetcher._bs_login_count -= 1
+        # Only logout when last fetcher disconnects
+        if BaoStockFetcher._bs_login_count <= 0:
+            bs.logout()
+            BaoStockFetcher._bs_logged_in = False
+            BaoStockFetcher._bs_login_count = 0
 
 
-    @retry_on_failure
+    @retry_on_failure()
     def fetch_adjust_factor(
         self, symbol: str, start_date: str, end_date: str
     ) -> pd.DataFrame:
@@ -108,8 +93,40 @@ class BaoStockFetcher:
         df = df.rename(columns={"dividOperateDate": "date"})
 
         df["date"] = pd.to_datetime(df["date"])
-        df["foreAdjustFactor"] = pd.to_numeric(df["foreAdjustFactor"], errors="coerce")
-        df["backAdjustFactor"] = pd.to_numeric(df["backAdjustFactor"], errors="coerce")
+
+        # Convert adjust factors to numeric with validation
+        # Use strict conversion to detect data quality issues
+        try:
+            df["foreAdjustFactor"] = pd.to_numeric(df["foreAdjustFactor"])
+            df["backAdjustFactor"] = pd.to_numeric(df["backAdjustFactor"])
+        except ValueError as e:
+            # Log specific rows with invalid data
+            invalid_fore = df[pd.to_numeric(df["foreAdjustFactor"], errors="coerce").isna()]["foreAdjustFactor"]
+            invalid_back = df[pd.to_numeric(df["backAdjustFactor"], errors="coerce").isna()]["backAdjustFactor"]
+
+            if len(invalid_fore) > 0:
+                logger.error(
+                    f"Invalid foreAdjustFactor values for {symbol}: {invalid_fore.head().tolist()}"
+                )
+            if len(invalid_back) > 0:
+                logger.error(
+                    f"Invalid backAdjustFactor values for {symbol}: {invalid_back.head().tolist()}"
+                )
+
+            # Use coerce as fallback but log warning
+            logger.warning(
+                f"Converting adjust factors with coerce for {symbol} due to invalid values. "
+                f"Data quality may be compromised."
+            )
+            df["foreAdjustFactor"] = pd.to_numeric(df["foreAdjustFactor"], errors="coerce")
+            df["backAdjustFactor"] = pd.to_numeric(df["backAdjustFactor"], errors="coerce")
+
+            # Check how many NaN values were introduced
+            nan_count = df["backAdjustFactor"].isna().sum()
+            if nan_count > 0:
+                logger.warning(
+                    f"{symbol}: {nan_count}/{len(df)} adjust factors converted to NaN"
+                )
 
         # Note: Keep 'date' as column for converter to handle
 
@@ -118,7 +135,7 @@ class BaoStockFetcher:
         return df
 
 
-    @retry_on_failure
+    @retry_on_failure()
     def fetch_stock_basic(self, symbol: str) -> pd.DataFrame:
         """
         Fetch stock basic information
@@ -146,7 +163,7 @@ class BaoStockFetcher:
         return df
 
 
-    @retry_on_failure
+    @retry_on_failure()
     def fetch_stock_industry(self, symbol: str, date: str = None) -> pd.DataFrame:
         """
         Fetch stock industry classification
@@ -164,8 +181,8 @@ class BaoStockFetcher:
         if date is None:
             date = datetime.now().strftime("%Y-%m-%d")
 
-        # Normalize date format
-        date_str = date.replace("-", "")
+        # Use the date string directly (YYYY-MM-DD) – BaoStock expects this format
+        date_str = date
 
         rs = bs.query_stock_industry(code=bs_code, date=date_str)
 
@@ -180,7 +197,7 @@ class BaoStockFetcher:
 
         return df
 
-    @retry_on_failure
+    @retry_on_failure()
     def fetch_trade_calendar(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
         Fetch trading calendar
@@ -205,7 +222,7 @@ class BaoStockFetcher:
 
         return df
 
-    @retry_on_failure
+    @retry_on_failure()
     def fetch_index_stocks(self, index_code: str, date: str = None) -> pd.DataFrame:
         """
         Fetch index constituent stocks
@@ -264,3 +281,141 @@ class BaoStockFetcher:
             return pd.DataFrame()
 
         return df
+
+    @retry_on_failure()
+    def fetch_quarterly_fundamentals(
+        self, symbol: str, year: int, quarter: int
+    ) -> pd.DataFrame:
+        """
+        Fetch all quarterly fundamentals for a stock
+        
+        Combines data from 5 BaoStock APIs:
+        - query_profit_data (盈利能力)
+        - query_growth_data (成长能力)
+        - query_balance_data (偿债能力)
+        - query_operation_data (营运能力)
+        - query_cash_flow_data (现金流量)
+        
+        Args:
+            symbol: Stock code in PTrade format
+            year: Year (e.g., 2024)
+            quarter: Quarter (1-4)
+        
+        Returns:
+            DataFrame with PTrade format fields including publ_date and end_date
+        """
+        bs_code = convert_from_ptrade_code(symbol, "baostock")
+        
+        # Fetch from all 5 APIs
+        dfs = []
+        
+        # 1. Profit data (盈利能力)
+        rs = bs.query_profit_data(code=bs_code, year=year, quarter=quarter)
+        if rs.error_code == "0":
+            df = rs.get_data()
+            if not df.empty:
+                dfs.append(df)
+        
+        # 2. Growth data (成长能力)
+        rs = bs.query_growth_data(code=bs_code, year=year, quarter=quarter)
+        if rs.error_code == "0":
+            df = rs.get_data()
+            if not df.empty:
+                dfs.append(df)
+        
+        # 3. Balance data (偿债能力)
+        rs = bs.query_balance_data(code=bs_code, year=year, quarter=quarter)
+        if rs.error_code == "0":
+            df = rs.get_data()
+            if not df.empty:
+                dfs.append(df)
+        
+        # 4. Operation data (营运能力)
+        rs = bs.query_operation_data(code=bs_code, year=year, quarter=quarter)
+        if rs.error_code == "0":
+            df = rs.get_data()
+            if not df.empty:
+                dfs.append(df)
+        
+        # 5. Cash flow data (现金流量)
+        rs = bs.query_cash_flow_data(code=bs_code, year=year, quarter=quarter)
+        if rs.error_code == "0":
+            df = rs.get_data()
+            if not df.empty:
+                dfs.append(df)
+        
+        if not dfs:
+            logger.debug(f"No fundamentals data for {symbol} {year}Q{quarter}")
+            return pd.DataFrame()
+        
+        # Merge all dataframes on common keys
+        result = dfs[0]
+        merge_keys = ['code', 'pubDate', 'statDate']
+        
+        for df in dfs[1:]:
+            result = result.merge(df, on=merge_keys, how='outer', suffixes=('', '_dup'))
+            # Remove duplicate columns
+            result = result.loc[:, ~result.columns.str.endswith('_dup')]
+        
+        # Map to PTrade format
+        field_mapping = {
+            # Date fields (CRITICAL!)
+            'pubDate': 'publ_date',  # 公告日期 - 最重要！
+            'statDate': 'end_date',  # 统计日期（季度结束日）
+            
+            # Profitability
+            'roeAvg': 'roe',
+            'roa': 'roa',
+            'npMargin': 'net_profit_ratio',
+            'gpMargin': 'gross_income_ratio',
+            
+            # Growth
+            'YOYORev': 'operating_revenue_grow_rate',
+            'YOYNI': 'net_profit_grow_rate',
+            'YOYAsset': 'total_asset_grow_rate',
+            'YOYEPSBasic': 'basic_eps_yoy',
+            'YOYPNI': 'np_parent_company_yoy',
+            
+            # Solvency
+            'currentRatio': 'current_ratio',
+            'quickRatio': 'quick_ratio',
+            'liabilityToAsset': 'debt_equity_ratio',
+            
+            # Operating
+            'NRTurnRatio': 'accounts_receivables_turnover_rate',
+            'INVTurnRatio': 'inventory_turnover_rate',
+            'CATurnRatio': 'current_assets_turnover_rate',
+            'AssetTurnRatio': 'total_asset_turnover_rate',
+            
+            # Cash flow
+            'ebitToInterest': 'interest_cover',
+        }
+        
+        # Rename columns
+        result = result.rename(columns=field_mapping)
+        
+        # Convert date fields with error handling
+        if "publ_date" in result.columns:
+            result["publ_date"] = pd.to_datetime(result["publ_date"], errors="coerce")
+
+        if "end_date" in result.columns:
+            result["end_date"] = pd.to_datetime(result["end_date"], errors="coerce")
+            # Drop rows with invalid end_date (required for index)
+            result = result.dropna(subset=["end_date"])
+        # Convert numeric fields
+        numeric_fields = [
+            'roe', 'roa', 'net_profit_ratio', 'gross_income_ratio',
+            'operating_revenue_grow_rate', 'net_profit_grow_rate',
+            'total_asset_grow_rate', 'basic_eps_yoy', 'np_parent_company_yoy',
+            'current_ratio', 'quick_ratio', 'debt_equity_ratio',
+            'accounts_receivables_turnover_rate', 'inventory_turnover_rate',
+            'current_assets_turnover_rate', 'total_asset_turnover_rate',
+            'interest_cover'
+        ]
+        
+        for field in numeric_fields:
+            if field in result.columns:
+                result[field] = pd.to_numeric(result[field], errors='coerce')
+        
+        logger.info(f"Fetched fundamentals for {symbol} {year}Q{quarter}: {len(result)} rows")
+        return result

@@ -10,6 +10,8 @@ from typing import Dict, List
 import pandas as pd
 from tables import NaturalNameWarning
 
+from simtradedata.validators import validate_before_write
+
 warnings.filterwarnings("ignore", category=NaturalNameWarning)
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,12 @@ class HDF5Writer:
         if data.empty:
             logger.warning(f"No data to write for {symbol}")
             return
+
+        # Validate data quality before writing
+        try:
+            validate_before_write(data, "market", symbol, strict=False)
+        except Exception as e:
+            logger.error(f"Validation failed for {symbol} market data: {e}")
 
         # Ensure datetime index
         if not isinstance(data.index, pd.DatetimeIndex):
@@ -223,7 +231,10 @@ class HDF5Writer:
             logger.warning(f"No fundamentals data to write for {symbol}")
             return
 
-        if not isinstance(data.index, pd.DatetimeIndex):
+        # Ensure end_date is the index
+        if "end_date" in data.columns:
+            data = data.set_index("end_date")
+        elif not isinstance(data.index, pd.DatetimeIndex):
             data.index = pd.to_datetime(data.index)
 
         key = f"fundamentals/{symbol}"
@@ -232,7 +243,7 @@ class HDF5Writer:
             store.put(
                 key,
                 data,
-                format="fixed",
+                format="table",  # Changed from fixed to support compression
                 complevel=9,
                 complib="blosc",
             )

@@ -61,16 +61,19 @@ class EfficientBaoStockDownloader:
     in a single call and routing them to appropriate HDF5 structures.
     """
     
-    def __init__(self, output_dir: str = "."):
+    def __init__(self, output_dir: str = ".", skip_fundamentals: bool = False):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize components
         self.unified_fetcher = UnifiedDataFetcher()
         self.standard_fetcher = BaoStockFetcher()  # For metadata and other data
         self.data_splitter = DataSplitter()
         self.writer = HDF5Writer(output_dir=output_dir)
-        
+
+        # Configuration
+        self.skip_fundamentals = skip_fundamentals
+
         # Cache for status data (used to build stock_status_history)
         self.status_cache = {}
     
@@ -79,15 +82,15 @@ class EfficientBaoStockDownloader:
     ) -> dict:
         """
         Download all data for a single stock
-        
+
         Optimization: Uses unified fetcher to get market + valuation + status
         in ONE API call instead of three separate calls.
-        
+
         Args:
             symbol: Stock code in PTrade format
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
-        
+
         Returns:
             Dict with metadata information
         """
@@ -96,23 +99,23 @@ class EfficientBaoStockDownloader:
             unified_df = self.unified_fetcher.fetch_unified_daily_data(
                 symbol, start_date, end_date
             )
-            
+
             if unified_df.empty:
                 logger.warning(f"No data for {symbol}")
                 return None
-            
+
             # === 2. Split data in memory ===
             split_data = self.data_splitter.split_data(unified_df)
-            
+
             # === 3. Write to different HDF5 files ===
             # 3.1 Market data -> ptrade_data.h5/stock_data/{symbol}
             if 'market' in split_data:
                 self.writer.write_market_data(symbol, split_data['market'], mode='a')
-            
+
             # 3.2 Valuation data -> ptrade_fundamentals.h5/valuation/{symbol}
-            if 'valuation' in split_data:
-                self.writer.write_valuation(symbol, split_data['valuation'], mode='a')
-            
+            # Calculate market cap if valuation data available
+            valuation_data = split_data.get('valuation')
+
             # 3.3 Cache status data for later processing
             if 'status' in split_data:
                 self.status_cache[symbol] = split_data['status']
@@ -156,6 +159,70 @@ class EfficientBaoStockDownloader:
                     }
             except Exception as e:
                 logger.warning(f"Failed to fetch industry for {symbol}: {e}")
+            
+            # === 4.4 Quarterly fundamentals data ===
+            fundamental_df = pd.DataFrame()
+            if not self.skip_fundamentals:
+                try:
+                    from simtradedata.utils.ttm_calculator import (
+                        get_quarters_in_range,
+                        calculate_ttm_indicators
+                    )
+
+                    # Get quarters in date range
+                    quarters = get_quarters_in_range(start_date, end_date)
+
+                    if quarters:
+                        all_fundamentals = []
+
+                        for year, quarter in quarters:
+                            fund_df = self.standard_fetcher.fetch_quarterly_fundamentals(
+                                symbol, year, quarter
+                            )
+                            if not fund_df.empty:
+                                all_fundamentals.append(fund_df)
+
+                        if all_fundamentals:
+                            # Combine all quarters
+                            combined_df = pd.concat(all_fundamentals, ignore_index=True)
+
+                            # Sort by end_date
+                            if 'end_date' in combined_df.columns:
+                                combined_df = combined_df.sort_values('end_date')
+                                combined_df = combined_df.set_index('end_date')
+
+                            # Calculate TTM indicators
+                            combined_df = calculate_ttm_indicators(combined_df)
+
+                            # Save for market cap calculation
+                            fundamental_df = combined_df
+
+                            # Write to HDF5
+                            self.writer.write_fundamentals(symbol, combined_df, mode='a')
+
+                            logger.info(
+                                f"Saved fundamentals for {symbol}: {len(combined_df)} quarters"
+                            )
+                except Exception as e:
+                    logger.warning(f"Failed to fetch fundamentals for {symbol}: {e}")
+
+            # === 4.5 Calculate market cap and write valuation ===
+            if valuation_data is not None and not valuation_data.empty:
+                try:
+                    from simtradedata.utils.market_cap_calculator import calculate_market_cap
+
+                    # Calculate market cap using fundamental data (if available)
+                    valuation_with_cap = calculate_market_cap(
+                        valuation_data, fundamental_df, symbol
+                    )
+
+                    # Write valuation data with market cap
+                    self.writer.write_valuation(symbol, valuation_with_cap, mode='a')
+                except Exception as e:
+                    logger.error(f"Failed to calculate/write valuation for {symbol}: {e}")
+                    # Fallback: write valuation without market cap
+                    self.writer.write_valuation(symbol, valuation_data, mode='a')
+
             
             return {
                 'stock_code': symbol,
@@ -201,12 +268,13 @@ class EfficientBaoStockDownloader:
         return metadata_list
 
 
-def download_all_data(incremental_days=None):
+def download_all_data(incremental_days=None, skip_fundamentals=False):
     """
     Main download function
-    
+
     Args:
         incremental_days: If set, only update last N days for existing stocks
+        skip_fundamentals: If True, skip quarterly fundamentals download
     """
     print("=" * 70)
     print("Efficient BaoStock Data Download Program")
@@ -215,6 +283,12 @@ def download_all_data(incremental_days=None):
         print(f"Mode: Incremental update (last {incremental_days} days)")
     else:
         print("Mode: Full download")
+
+    if skip_fundamentals:
+        print("Fundamentals: Skipped (use without --skip-fundamentals to download)")
+    else:
+        print("Fundamentals: Enabled")
+
     print("=" * 70)
     
     # Date range
@@ -232,9 +306,12 @@ def download_all_data(incremental_days=None):
     end_date_str = end_date.strftime("%Y-%m-%d")
     
     print(f"\nDate range: {start_date_str} ~ {end_date_str}")
-    
+
     # Initialize downloader
-    downloader = EfficientBaoStockDownloader(output_dir=OUTPUT_DIR)
+    downloader = EfficientBaoStockDownloader(
+        output_dir=OUTPUT_DIR,
+        skip_fundamentals=skip_fundamentals
+    )
     downloader.unified_fetcher.login()
     downloader.standard_fetcher.login()
     
@@ -457,7 +534,7 @@ def download_all_data(incremental_days=None):
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description="Efficient BaoStock data download program"
     )
@@ -467,8 +544,16 @@ if __name__ == "__main__":
         metavar="DAYS",
         help="Incremental update: only update last N days for existing stocks",
     )
-    
+    parser.add_argument(
+        "--skip-fundamentals",
+        action="store_true",
+        help="Skip quarterly fundamentals download (only download market data)",
+    )
+
     args = parser.parse_args()
-    
+
     incremental = args.incremental or INCREMENTAL_DAYS
-    download_all_data(incremental_days=incremental)
+    download_all_data(
+        incremental_days=incremental,
+        skip_fundamentals=args.skip_fundamentals
+    )

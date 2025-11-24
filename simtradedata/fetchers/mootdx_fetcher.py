@@ -19,12 +19,13 @@ from datetime import datetime
 import pandas as pd
 from mootdx.quotes import Quotes
 
+from simtradedata.fetchers.base_fetcher import BaseFetcher
 from simtradedata.utils.code_utils import convert_from_ptrade_code, retry_on_failure
 
 logger = logging.getLogger(__name__)
 
 
-class MootdxFetcher:
+class MootdxFetcher(BaseFetcher):
     """
     Fetch K-line market data from Mootdx (通达信) servers
 
@@ -51,6 +52,7 @@ class MootdxFetcher:
         Args:
             timeout: Request timeout in seconds
         """
+        super().__init__()  # Initialize BaseFetcher
         self.timeout = timeout
         self._client = None
 
@@ -66,25 +68,18 @@ class MootdxFetcher:
             logger.info("Mootdx client initialized with multithreading")
         return self._client
 
-    def login(self):
+    def _do_login(self):
         """
-        Login (no-op for Mootdx, included for API compatibility)
+        Initialize Mootdx client (no-op for API compatibility)
 
-        Mootdx doesn't require login, but we keep this method
-        for compatibility with BaoStockFetcher interface.
+        Mootdx doesn't require login, but we keep this for
+        compatibility with BaseFetcher interface.
         """
         self._get_client()
 
-    def logout(self):
+    def _do_logout(self):
         """Logout (no-op for Mootdx)"""
-
-    def __enter__(self):
-        self.login()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.logout()
-        return False
+        pass
 
     @retry_on_failure
     def fetch_market_data(

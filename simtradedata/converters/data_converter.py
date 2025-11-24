@@ -8,6 +8,12 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 
+from simtradedata.config.field_mappings import (
+    FUNDAMENTAL_FIELD_MAP,
+    MARKET_FIELD_MAP,
+    VALUATION_FIELD_MAP,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,51 +28,10 @@ class DataConverter:
     - Data structure reorganization
     """
 
-    # Field mapping for market data
-    MARKET_FIELD_MAP = {
-        "date": "date",
-        "open": "open",
-        "high": "high",
-        "low": "low",
-        "close": "close",
-        "volume": "volume",
-        "amount": "money",  # BaoStock 'amount' -> PTrade 'money'
-    }
-
-    # Field mapping for valuation data
-    VALUATION_FIELD_MAP = {
-        "peTTM": "pe_ttm",
-        "pbMRQ": "pb",
-        "psTTM": "ps_ttm",
-        "pcfNcfTTM": "pcf",
-        "turn": "turnover_rate",
-    }
-
-    # Field mapping for fundamentals (BaoStock -> PTrade)
-    FUNDAMENTAL_FIELD_MAP = {
-        # From profit data
-        "roeAvg": "roe",
-        "roa": "roa",
-        "npMargin": "net_profit_ratio",
-        "gpMargin": "gross_income_ratio",
-        # From balance data
-        "currentRatio": "current_ratio",
-        "quickRatio": "quick_ratio",
-        "liabilityToAsset": "debt_equity_ratio",
-        # From operation data
-        "ARTurnRatio": "accounts_receivables_turnover_rate",
-        "INVTurnRatio": "inventory_turnover_rate",
-        "TATurnRatio": "total_asset_turnover_rate",
-        "CATurnRatio": "current_assets_turnover_rate",
-        # From growth data
-        "YOYORev": "operating_revenue_grow_rate",
-        "YOYNI": "net_profit_grow_rate",
-        "YOYAsset": "total_asset_grow_rate",
-        "YOYEPSBasic": "basic_eps_yoy",
-        "YOYPNI": "np_parent_company_yoy",
-        # From cash flow data
-        "ebitToInterest": "interest_cover",
-    }
+    # Import field mappings from config
+    MARKET_FIELD_MAP = MARKET_FIELD_MAP
+    VALUATION_FIELD_MAP = VALUATION_FIELD_MAP
+    FUNDAMENTAL_FIELD_MAP = FUNDAMENTAL_FIELD_MAP
 
     def convert_market_data(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         """
@@ -105,9 +70,28 @@ class DataConverter:
         column_order = ["close", "open", "high", "low", "volume", "money"]
         result = result.reindex(columns=column_order)
 
-        # Convert to appropriate data types
+        # Convert to appropriate data types with validation
+        failed_cols = []
         for col in result.columns:
-            result[col] = pd.to_numeric(result[col], errors="coerce")
+            try:
+                result[col] = pd.to_numeric(result[col])
+            except (ValueError, TypeError):
+                failed_cols.append(col)
+
+        # If any column failed strict conversion, use coerce with warning
+        if failed_cols:
+            logger.warning(
+                f"{symbol}: Market data columns {failed_cols} have invalid values, "
+                f"using coerce (may introduce NaN)"
+            )
+            for col in failed_cols:
+                result[col] = pd.to_numeric(result[col], errors="coerce")
+
+                nan_count = result[col].isna().sum()
+                if nan_count > 0:
+                    logger.warning(
+                        f"{symbol}.{col}: {nan_count}/{len(result)} values converted to NaN"
+                    )
 
         logger.info(
             f"Converted market data for {symbol}: {len(result)} rows, "
@@ -163,11 +147,9 @@ class DataConverter:
         ptrade_fields = ["pe_ttm", "pb", "ps_ttm", "pcf", "turnover_rate"]
         result = result[[col for col in ptrade_fields if col in result.columns]]
 
-        # Calculate market value fields (需要股本数据,这里先填充 NaN)
-        # TODO: Add total_shares, total_value, float_value calculation
-        result["total_shares"] = np.nan
-        result["total_value"] = np.nan
-        result["float_value"] = np.nan
+        # Note: Market cap fields (total_shares, total_value, float_value) are
+        # calculated in the download script using market_cap_calculator.py
+        # They require combining daily valuation data with quarterly fundamental data
 
         logger.info(f"Converted valuation data for {symbol}: {len(result)} rows")
 
@@ -230,18 +212,9 @@ class DataConverter:
         }
         mapped_result = result.rename(columns=rename_map)
 
-        # Add TTM fields (calculated from quarterly data)
-        # TODO: Implement TTM calculations for fields ending with _ttm
-        ttm_fields = [
-            "roe_ttm",
-            "roa_ttm",
-            "gross_income_ratio_ttm",
-            "net_profit_ratio_ttm",
-            "roa_ebit_ttm",
-        ]
-        for field in ttm_fields:
-            if field not in mapped_result.columns:
-                mapped_result[field] = np.nan
+        # Note: TTM fields should be calculated using ttm_calculator.calculate_ttm_indicators()
+        # before calling this method. This ensures proper rolling calculations.
+        # We only add placeholders for TTM fields that are truly unavailable.
 
         # Add missing fields with NaN and ensure correct order
         ptrade_fields = [
@@ -270,6 +243,7 @@ class DataConverter:
             "total_asset_turnover_rate",
         ]
         # Reindex ensures all required columns are present (with NaN if missing) and in order
+        # Important: reindex preserves existing values, only adds NaN for truly missing columns
         final_result = mapped_result.reindex(columns=ptrade_fields)
 
         logger.info(

@@ -10,36 +10,9 @@ from typing import Dict
 
 import pandas as pd
 
+from simtradedata.config.field_mappings import DATA_ROUTING
+
 logger = logging.getLogger(__name__)
-
-
-# Data routing configuration
-DATA_ROUTING = {
-    'market': {
-        'target_file': 'ptrade_data.h5',
-        'target_path': 'stock_data/{symbol}',
-        'fields': ['date', 'open', 'high', 'low', 'close', 'volume', 'amount'],
-        'rename': {'amount': 'money'}  # PTrade uses 'money' instead of 'amount'
-    },
-    'valuation': {
-        'target_file': 'ptrade_fundamentals.h5',
-        'target_path': 'valuation/{symbol}',
-        'fields': ['date', 'peTTM', 'pbMRQ', 'psTTM', 'pcfNcfTTM', 'turn'],
-        'rename': {
-            'peTTM': 'pe_ttm',
-            'pbMRQ': 'pb',
-            'psTTM': 'ps_ttm',
-            'pcfNcfTTM': 'pcf',
-            'turn': 'turnover_rate'
-        }
-    },
-    'status': {
-        'target_file': 'memory',  # Stored in memory for building stock_status_history
-        'target_path': None,
-        'fields': ['date', 'isST', 'tradestatus'],
-        'rename': {}
-    }
-}
 
 
 class DataSplitter:

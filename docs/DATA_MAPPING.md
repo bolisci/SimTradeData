@@ -289,35 +289,46 @@ ptrade_fundamentals.h5
 
 #### 目标格式
 
-23 个财务指标,季度数据:
+**⚠️ 重要**: 除了 23 个财务指标外，还必须保存 `pubDate`（公告日期）和 `statDate`（统计日期）字段。
 
-| 字段名 | 说明 |
-|--------|------|
-| accounts_receivables_turnover_rate | 应收账款周转率 |
-| basic_eps_yoy | 基本每股收益同比增长率 |
-| current_assets_turnover_rate | 流动资产周转率 |
-| current_ratio | 流动比率 |
-| debt_equity_ratio | 资产负债率 |
-| gross_income_ratio | 销售毛利率 |
-| gross_income_ratio_ttm | 销售毛利率(TTM) |
-| interest_cover | 利息保障倍数 |
-| inventory_turnover_rate | 存货周转率 |
-| net_profit_grow_rate | 净利润增长率 |
-| net_profit_ratio | 销售净利率 |
-| net_profit_ratio_ttm | 销售净利率(TTM) |
-| np_parent_company_yoy | 归母净利润同比 |
-| operating_revenue_grow_rate | 营业收入增长率 |
-| quick_ratio | 速动比率 |
-| roa | 总资产收益率 |
-| roa_ebit_ttm | EBIT/总资产(TTM) |
-| roa_ttm | 总资产收益率(TTM) |
-| roe | 净资产收益率 |
-| roe_ttm | 净资产收益率(TTM) |
-| roic | 投入资本回报率 |
-| total_asset_grow_rate | 总资产增长率 |
-| total_asset_turnover_rate | 总资产周转率 |
+25 个字段（23个财务指标 + 2个日期字段），季度数据:
 
-索引: end_date (datetime64[ns],季度结束日期)
+| 字段名 | 说明 | 重要性 |
+|--------|------|--------|
+| **日期字段** (2个) | | |
+| pubDate | 公告日期 | ⚠️ **最重要** - 避免未来函数 |
+| statDate | 统计日期（季度结束日期） | 必需 |
+| **财务指标** (23个) | | |
+| accounts_receivables_turnover_rate | 应收账款周转率 | |
+| basic_eps_yoy | 基本每股收益同比增长率 | |
+| current_assets_turnover_rate | 流动资产周转率 | |
+| current_ratio | 流动比率 | |
+| debt_equity_ratio | 资产负债率 | |
+| gross_income_ratio | 销售毛利率 | |
+| gross_income_ratio_ttm | 销售毛利率(TTM) | |
+| interest_cover | 利息保障倍数 | |
+| inventory_turnover_rate | 存货周转率 | |
+| net_profit_grow_rate | 净利润增长率 | |
+| net_profit_ratio | 销售净利率 | |
+| net_profit_ratio_ttm | 销售净利率(TTM) | |
+| np_parent_company_yoy | 归母净利润同比 | |
+| operating_revenue_grow_rate | 营业收入增长率 | |
+| quick_ratio | 速动比率 | |
+| roa | 总资产收益率 | |
+| roa_ebit_ttm | EBIT/总资产(TTM) | |
+| roa_ttm | 总资产收益率(TTM) | |
+| roe | 净资产收益率 | |
+| roe_ttm | 净资产收益率(TTM) | |
+| roic | 投入资本回报率 | |
+| total_asset_grow_rate | 总资产增长率 | |
+| total_asset_turnover_rate | 总资产周转率 | |
+
+索引: end_date (datetime64[ns],通常等于 statDate)
+
+**字段说明**:
+- `pubDate`: 财报公告日期，决定数据何时可用，用于回测时避免使用未来数据
+- `statDate`: 财报统计日期，即季度结束日期（如 2024-09-30）
+- `end_date`: 索引字段，通常等于 `statDate`
 
 #### 数据源映射
 
@@ -381,25 +392,45 @@ rs_dupont = bs.query_dupont_data(
 bs.logout()
 ```
 
-**字段映射表**:
+**完整字段映射表** (23个字段):
 
-| PTrade 字段 | BaoStock API | BaoStock 字段 |
-|-------------|--------------|---------------|
-| roe | query_profit_data | roeAvg |
-| roa | query_profit_data | roa |
-| net_profit_ratio | query_profit_data | npMargin |
-| gross_income_ratio | query_profit_data | gpMargin |
-| current_ratio | query_balance_data | currentRatio |
-| quick_ratio | query_balance_data | quickRatio |
-| debt_equity_ratio | query_balance_data | liabilityToAsset |
-| accounts_receivables_turnover_rate | query_operation_data | ARTurnRatio |
-| inventory_turnover_rate | query_operation_data | INVTurnRatio |
-| total_asset_turnover_rate | query_operation_data | TATurnRatio |
-| operating_revenue_grow_rate | query_growth_data | YOYORev |
-| net_profit_grow_rate | query_growth_data | YOYNI |
-| total_asset_grow_rate | query_growth_data | YOYAsset |
-| interest_cover | query_cash_flow_data | ebitToInterest |
-| ... | ... | ... |
+| PTrade 字段 | 说明 | BaoStock API | BaoStock 字段 | 映射状态 |
+|-------------|------|-------------|--------------|---------|
+| **盈利能力指标** (4个) |
+| roe | 净资产收益率 | query_profit_data | roeAvg | ✅ 直接映射 |
+| roe_ttm | 净资产收益率TTM | - | - | ⚠️ 需计算 (滚动4季度) |
+| roa | 总资产净利率 | query_profit_data | roa | ✅ 直接映射 |
+| roa_ttm | 总资产净利率TTM | - | - | ⚠️ 需计算 (滚动4季度) |
+| roa_ebit_ttm | 总资产报酬率TTM | - | - | ⚠️ 需计算 |
+| roic | 投入资本回报率 | - | - | ⚠️ 需计算公式 |
+| net_profit_ratio | 销售净利率 | query_profit_data | npMargin | ✅ 直接映射 |
+| net_profit_ratio_ttm | 销售净利率TTM | - | - | ⚠️ 需计算 (滚动4季度) |
+| gross_income_ratio | 销售毛利率 | query_profit_data | gpMargin | ✅ 直接映射 |
+| gross_income_ratio_ttm | 销售毛利率TTM | - | - | ⚠️ 需计算 (滚动4季度) |
+| **成长能力指标** (5个) |
+| operating_revenue_grow_rate | 营业收入增长率 | query_growth_data | YOYORev | ✅ 直接映射 |
+| net_profit_grow_rate | 净利润增长率 | query_growth_data | YOYNI | ✅ 直接映射 |
+| total_asset_grow_rate | 总资产增长率 | query_growth_data | YOYAsset | ✅ 直接映射 |
+| basic_eps_yoy | 基本每股收益同比 | query_growth_data | YOYEPSBasic | ✅ 直接映射 |
+| np_parent_company_yoy | 归母净利润同比 | query_growth_data | YOYPNI | ✅ 直接映射 |
+| **偿债能力指标** (3个) |
+| current_ratio | 流动比率 | query_balance_data | currentRatio | ✅ 直接映射 |
+| quick_ratio | 速动比率 | query_balance_data | quickRatio | ✅ 直接映射 |
+| debt_equity_ratio | 资产负债率 | query_balance_data | liabilityToAsset | ✅ 直接映射 |
+| **营运能力指标** (4个) |
+| accounts_receivables_turnover_rate | 应收账款周转率 | query_operation_data | NRTurnRatio | ✅ 直接映射 |
+| inventory_turnover_rate | 存货周转率 | query_operation_data | INVTurnRatio | ✅ 直接映射 |
+| current_assets_turnover_rate | 流动资产周转率 | query_operation_data | CATurnRatio | ✅ 直接映射 |
+| total_asset_turnover_rate | 总资产周转率 | query_operation_data | AssetTurnRatio | ✅ 直接映射 |
+| **现金流量指标** (1个) |
+| interest_cover | 利息保障倍数 | query_cash_flow_data | ebitToInterest | ✅ 直接映射 |
+
+**数据覆盖率**:
+- ✅ 可直接获取: **16/23 字段 (70%)**
+- ⚠️ 需要计算: **7/23 字段 (30%)**
+  - 5个 TTM 指标 (滚动4季度求和)
+  - 1个 ROIC (需公式计算)
+  - 1个 roa_ebit_ttm (需公式计算)
 
 **QStock** (备选)
 
@@ -441,29 +472,38 @@ df = get_data('000001', 'financial_data')
 **BaoStock** (推荐)
 
 ```python
-# 方法 1: 使用 query_history_k_data_plus 获取估值指标
+# 获取日线数据 (含估值指标)
 rs = bs.query_history_k_data_plus(
     "sh.600000",
-    "date,peTTM,pbMRQ,psTTM,pcfNcfTTM,turn",
+    "date,close,peTTM,pbMRQ,psTTM,pcfNcfTTM,turn",
     start_date='2020-01-01',
     end_date='2025-12-31',
     frequency="d",
     adjustflag="3"
 )
 
-# 字段映射
-baostock_fields = {
-    'peTTM': 'pe_ttm',
-    'pbMRQ': 'pb',
-    'psTTM': 'ps_ttm',
-    'pcfNcfTTM': 'pcf',
-    'turn': 'turnover_rate'
-}
-
-# 市值和股本需要单独计算:
-# total_value = close_price * total_shares
-# float_value = close_price * float_shares
+# 获取股本信息 (用于计算市值)
+rs_basic = bs.query_stock_basic(code="sh.600000")
 ```
+
+**完整字段映射表** (8个字段):
+
+| PTrade 字段 | 说明 | BaoStock API | BaoStock 字段 | 映射状态 |
+|------------|------|-------------|--------------|---------|
+| pe_ttm | 市盈率TTM | query_history_k_data_plus | peTTM | ✅ 直接映射 |
+| pb | 市净率 | query_history_k_data_plus | pbMRQ | ✅ 直接映射 |
+| ps_ttm | 市销率TTM | query_history_k_data_plus | psTTM | ✅ 直接映射 |
+| pcf | 市现率 | query_history_k_data_plus | pcfNcfTTM | ✅ 直接映射 |
+| turnover_rate | 换手率 | query_history_k_data_plus | turn | ✅ 直接映射 |
+| total_value | 总市值 | - | - | ⚠️ 需计算: close × total_shares |
+| float_value | 流通市值 | - | - | ⚠️ 需计算: close × float_shares |
+| total_shares | 总股本 | query_stock_basic | - | ⚠️ 从股票基本信息获取 |
+
+**数据覆盖率**:
+- ✅ 可直接获取: **5/8 字段 (63%)**
+- ⚠️ 需要计算: **3/8 字段 (37%)**
+  - 2个市值字段 (价格 × 股本)
+  - 1个股本字段 (从 query_stock_basic 获取)
 
 **QStock** (备选)
 
@@ -823,23 +863,6 @@ def test_simtradelab_compatibility():
 ---
 
 ## 九、性能优化
-
-### 并发下载
-
-```python
-from concurrent.futures import ThreadPoolExecutor
-
-def fetch_all_stocks_concurrent(stock_list, start_date, end_date, max_workers=4):
-    """并发下载多只股票数据"""
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = []
-        for stock in stock_list:
-            future = executor.submit(fetch_market_data, stock, start_date, end_date)
-            futures.append(future)
-
-        results = [f.result() for f in futures]
-    return results
-```
 
 ### 增量更新
 

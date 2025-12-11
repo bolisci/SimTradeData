@@ -14,6 +14,7 @@ import pandas as pd
 
 from simtradedata.fetchers.baostock_fetcher import BaoStockFetcher
 from simtradedata.utils.code_utils import convert_from_ptrade_code, retry_on_failure
+from simtradedata.config.field_mappings import MARKET_FIELD_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -306,9 +307,11 @@ class UnifiedDataFetcher(BaoStockFetcher):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        # Rename 'amount' to 'money' for consistency with stock data format
-        if "amount" in df.columns:
-            df = df.rename(columns={"amount": "money"})
+        # Rename fields to match PTrade format using centralized mapping
+        # Only rename fields that exist in the DataFrame
+        rename_map = {k: v for k, v in MARKET_FIELD_MAP.items() if k in df.columns}
+        if rename_map:
+            df = df.rename(columns=rename_map)
 
         logger.info(
             f"Fetched index data for {index_code}: {len(df)} rows"

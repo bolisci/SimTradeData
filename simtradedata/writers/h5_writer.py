@@ -25,6 +25,16 @@ class HDF5Writer:
     BaoStock does not support concurrent access, so locks are unnecessary overhead.
     """
 
+    # HDF5 storage format constants
+    # "table": Supports queries, slower, good for time-series data
+    # "fixed": Fast but no queries, good for metadata
+    FORMAT_TABLE = "table"
+    FORMAT_FIXED = "fixed"
+
+    # Compression settings
+    COMPRESSION_LEVEL = 9
+    COMPRESSION_LIB = "blosc"
+
     def __init__(self, output_dir: str = "."):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -36,6 +46,32 @@ class HDF5Writer:
         self.ptrade_dividend_cache_path = self.output_dir / "ptrade_dividend_cache.h5"
 
         logger.info(f"HDF5Writer initialized with output_dir: {self.output_dir}")
+
+    def _ensure_datetime_index(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Ensure DataFrame has DatetimeIndex
+
+        Args:
+            data: DataFrame to check
+
+        Returns:
+            DataFrame with DatetimeIndex
+        """
+        if not isinstance(data.index, pd.DatetimeIndex):
+            data.index = pd.to_datetime(data.index)
+        return data
+
+    def _get_compression_kwargs(self) -> dict:
+        """
+        Get standard compression kwargs for HDF5 storage
+
+        Returns:
+            Dict with complevel and complib
+        """
+        return {
+            'complevel': self.COMPRESSION_LEVEL,
+            'complib': self.COMPRESSION_LIB
+        }
 
     def write_market_data(
         self, symbol: str, data: pd.DataFrame, mode: str = "a"
@@ -59,8 +95,7 @@ class HDF5Writer:
             logger.error(f"Validation failed for {symbol} market data: {e}")
 
         # Ensure datetime index
-        if not isinstance(data.index, pd.DatetimeIndex):
-            data.index = pd.to_datetime(data.index)
+        data = self._ensure_datetime_index(data)
 
         key = f"stock_data/{symbol}"
 
@@ -68,9 +103,8 @@ class HDF5Writer:
             store.put(
                 key,
                 data,
-                format="table",
-                complevel=9,
-                complib="blosc",
+                format=self.FORMAT_TABLE,
+                **self._get_compression_kwargs()
             )
 
         logger.info(
@@ -96,17 +130,15 @@ class HDF5Writer:
         except Exception as e:
             logger.error(f"Validation failed for benchmark data: {e}")
 
-        if not isinstance(data.index, pd.DatetimeIndex):
-            data.index = pd.to_datetime(data.index)
+        data = self._ensure_datetime_index(data)
 
         with pd.HDFStore(self.ptrade_data_path, mode=mode) as store:
             store.put(
                 "benchmark",
                 data,
-                format="table",
+                format=self.FORMAT_TABLE,
                 data_columns=True,
-                complevel=9,
-                complib="blosc",
+                **self._get_compression_kwargs()
             )
 
         logger.info(
@@ -153,7 +185,7 @@ class HDF5Writer:
             store.put(
                 "metadata",
                 metadata,
-                format="fixed",
+                format=self.FORMAT_FIXED,
             )
 
         logger.info(
@@ -174,15 +206,16 @@ class HDF5Writer:
             logger.info(f"No data to write for {symbol}")
             return
 
+        data = self._ensure_datetime_index(data)
+
         key = f"exrights/{symbol}"
 
         with pd.HDFStore(self.ptrade_data_path, mode=mode) as store:
             store.put(
                 key,
                 data,
-                format="fixed",
-                complevel=9,
-                complib="blosc",
+                format=self.FORMAT_TABLE,
+                **self._get_compression_kwargs()
             )
 
         logger.info(
@@ -212,9 +245,8 @@ class HDF5Writer:
             store.put(
                 "stock_metadata",
                 metadata_clean,
-                format="table",
-                complevel=9,
-                complib="blosc",
+                format=self.FORMAT_TABLE,
+                **self._get_compression_kwargs()
             )
 
         logger.info(
@@ -240,8 +272,7 @@ class HDF5Writer:
         # Ensure end_date is the index
         if "end_date" in data.columns:
             data = data.set_index("end_date")
-        elif not isinstance(data.index, pd.DatetimeIndex):
-            data.index = pd.to_datetime(data.index)
+        data = self._ensure_datetime_index(data)
 
         key = f"fundamentals/{symbol}"
 
@@ -249,9 +280,8 @@ class HDF5Writer:
             store.put(
                 key,
                 data,
-                format="table",  # Changed from fixed to support compression
-                complevel=9,
-                complib="blosc",
+                format=self.FORMAT_TABLE,  # Changed from fixed to support compression
+                **self._get_compression_kwargs()
             )
 
         logger.info(
@@ -272,8 +302,7 @@ class HDF5Writer:
             logger.info(f"No data to write for {symbol}")
             return
 
-        if not isinstance(data.index, pd.DatetimeIndex):
-            data.index = pd.to_datetime(data.index)
+        data = self._ensure_datetime_index(data)
 
         key = f"valuation/{symbol}"
 
@@ -281,9 +310,8 @@ class HDF5Writer:
             store.put(
                 key,
                 data,
-                format="table",
-                complevel=9,
-                complib="blosc",
+                format=self.FORMAT_TABLE,
+                **self._get_compression_kwargs()
             )
 
         logger.info(
@@ -306,8 +334,7 @@ class HDF5Writer:
             logger.info(f"No data to write for {symbol}")
             return
 
-        if not isinstance(data.index, pd.DatetimeIndex):
-            data.index = pd.to_datetime(data.index)
+        data = self._ensure_datetime_index(data)
 
         # Ensure Series name is 'backward_a'
         data.name = "backward_a"
@@ -316,9 +343,8 @@ class HDF5Writer:
             store.put(
                 symbol,
                 data,
-                format="table",
-                complevel=9,
-                complib="blosc",
+                format=self.FORMAT_TABLE,
+                **self._get_compression_kwargs()
             )
 
         logger.info(
@@ -342,9 +368,8 @@ class HDF5Writer:
             store.put(
                 "trade_days",
                 trade_days_df,
-                format="fixed",
-                complevel=9,
-                complib="blosc",
+                format=self.FORMAT_TABLE,
+                **self._get_compression_kwargs()
             )
         logger.info(
             f"Wrote {len(trade_days_df)} trading days to {self.ptrade_data_path}"
@@ -366,7 +391,7 @@ class HDF5Writer:
             store.put(
                 "metadata",
                 metadata,
-                format="fixed",
+                format=self.FORMAT_FIXED,
             )
         logger.info(f"Wrote global metadata to {self.ptrade_data_path}")
 
@@ -413,116 +438,6 @@ class HDF5Writer:
 
         # Write merged data (always use mode='w' to replace the key)
         write_method(merged_data, mode='w')
-
-    def write_all_for_stock(
-        self,
-        symbol: str,
-        market_data: pd.DataFrame = None,
-        valuation_data: pd.DataFrame = None,
-        fundamentals_data: pd.DataFrame = None,
-        adjust_factor: pd.Series = None,
-        exrights_data: pd.DataFrame = None,
-        metadata: Dict = None,  # Metadata is no longer written here
-    ) -> None:
-        """
-        Write all data types for a single stock
-
-        This is a convenience method to write all data in one call.
-        Optimized to minimize file open/close operations.
-
-        Args:
-            symbol: Stock code in PTrade format
-            market_data: Market OHLCV data
-            valuation_data: Valuation indicators
-            fundamentals_data: Fundamental financial data
-            adjust_factor: Adjust factor series
-            exrights_data: Exrights/dividend data
-            metadata: (DEPRECATED) Stock metadata dict. This is no longer handled here.
-        """
-        # Write to ptrade_data.h5 (market, exrights) in one session
-        has_ptrade_data = (market_data is not None and not market_data.empty) or (
-            exrights_data is not None and not exrights_data.empty
-        )
-
-        if has_ptrade_data:
-            with pd.HDFStore(self.ptrade_data_path, mode="a") as store:
-                # Write market data
-                if market_data is not None and not market_data.empty:
-                    if not isinstance(market_data.index, pd.DatetimeIndex):
-                        market_data.index = pd.to_datetime(market_data.index)
-                    key = f"stock_data/{symbol}"
-                    store.put(
-                        key,
-                        market_data,
-                        format="fixed",
-                        complevel=9,
-                        complib="blosc",
-                    )
-
-                # Write exrights data
-                if exrights_data is not None and not exrights_data.empty:
-                    if not isinstance(exrights_data.index, pd.DatetimeIndex):
-                        exrights_data.index = pd.to_datetime(exrights_data.index)
-                    key = f"exrights/{symbol}"
-                    store.put(
-                        key,
-                        exrights_data,
-                        format="fixed",
-                        complevel=9,
-                        complib="blosc",
-                    )
-
-        # Write to ptrade_fundamentals.h5 (valuation, fundamentals) in one session
-        has_fundamentals = (
-            valuation_data is not None and not valuation_data.empty
-        ) or (fundamentals_data is not None and not fundamentals_data.empty)
-
-        if has_fundamentals:
-            with pd.HDFStore(self.ptrade_fundamentals_path, mode="a") as store:
-                # Write valuation data
-                if valuation_data is not None and not valuation_data.empty:
-                    if not isinstance(valuation_data.index, pd.DatetimeIndex):
-                        valuation_data.index = pd.to_datetime(valuation_data.index)
-                    key = f"valuation/{symbol}"
-                    store.put(
-                        key,
-                        valuation_data,
-                        format="fixed",
-                        complevel=9,
-                        complib="blosc",
-                    )
-
-                # Write fundamentals data
-                if fundamentals_data is not None and not fundamentals_data.empty:
-                    if not isinstance(fundamentals_data.index, pd.DatetimeIndex):
-                        fundamentals_data.index = pd.to_datetime(
-                            fundamentals_data.index
-                        )
-                    key = f"fundamentals/{symbol}"
-                    store.put(
-                        key,
-                        fundamentals_data,
-                        format="fixed",
-                        complevel=9,
-                        complib="blosc",
-                    )
-
-        # Write to ptrade_adj_pre.h5 (adjust factor)
-        if adjust_factor is not None and not adjust_factor.empty:
-            if not isinstance(adjust_factor.index, pd.DatetimeIndex):
-                adjust_factor.index = pd.to_datetime(adjust_factor.index)
-            adjust_factor.name = "backward_a"
-
-            with pd.HDFStore(self.ptrade_adj_pre_path, mode="a") as store:
-                store.put(
-                    symbol,
-                    adjust_factor,
-                    format="fixed",
-                    complevel=9,
-                    complib="blosc",
-                )
-
-        logger.info(f"Wrote all data for {symbol}")
 
     def get_existing_stocks(self, file_type: str = "market") -> List[str]:
         """

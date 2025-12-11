@@ -6,6 +6,7 @@ field mappings, routing configurations, and constants.
 """
 
 from .field_mappings import (
+    BENCHMARK_CONFIG,
     DATA_ROUTING,
     FUNDAMENTAL_FIELD_MAP,
     MARKET_FIELD_MAP,
@@ -17,4 +18,5 @@ __all__ = [
     "VALUATION_FIELD_MAP",
     "FUNDAMENTAL_FIELD_MAP",
     "DATA_ROUTING",
+    "BENCHMARK_CONFIG",
 ]

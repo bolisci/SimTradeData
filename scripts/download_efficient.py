@@ -470,8 +470,35 @@ def download_all_data(incremental_days=None, skip_fundamentals=False, skip_metad
                 print(f"  Trading calendar: {len(new_trade_days)} days")
         except Exception as e:
             logger.error(f"Failed to download trading calendar: {e}")
-        
-        # 5.2 Index constituents
+
+        # 5.2 Benchmark index data
+        # Use CSI300 (000300.SS) as default benchmark
+        BENCHMARK_INDEX = '000300.SS'
+        try:
+            print(f"  Downloading benchmark index ({BENCHMARK_INDEX})...")
+            benchmark_df = downloader.unified_fetcher.fetch_index_data(
+                BENCHMARK_INDEX, start_date_str, end_date_str
+            )
+
+            if not benchmark_df.empty:
+                # Merge with existing benchmark data to avoid overwriting
+                try:
+                    with pd.HDFStore(downloader.writer.ptrade_data_path, mode='r') as store:
+                        if 'benchmark' in store:
+                            existing_benchmark = store['benchmark']
+                            # Combine and remove duplicates
+                            benchmark_df = pd.concat([existing_benchmark, benchmark_df])
+                            benchmark_df = benchmark_df[~benchmark_df.index.duplicated(keep='last')]
+                            benchmark_df = benchmark_df.sort_index()
+                except (FileNotFoundError, KeyError):
+                    pass  # No existing data, use new data only
+
+                downloader.writer.write_benchmark(benchmark_df, mode='w')
+                print(f"  Benchmark index: {len(benchmark_df)} days")
+        except Exception as e:
+            logger.error(f"Failed to download benchmark data: {e}")
+
+        # 5.3 Index constituents
         index_constituents = {}
         for date_obj in tqdm(sample_dates, desc="Downloading index constituents"):
             date_str = date_obj.strftime("%Y%m%d")
@@ -491,8 +518,8 @@ def download_all_data(incremental_days=None, skip_fundamentals=False, skip_metad
                         index_constituents[date_str][index_code] = ptrade_codes
                 except Exception as e:
                     logger.error(f"Failed to get index {index_code} for {date_str}: {e}")
-        
-        # 5.3 Save global metadata
+
+        # 5.4 Save global metadata
         # Read existing metadata to preserve historical information
         actual_start_date = start_date_str
         existing_index_constituents = {}

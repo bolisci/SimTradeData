@@ -169,5 +169,71 @@ class UnifiedDataFetcher(BaoStockFetcher):
         logger.info(
             f"Batch fetch complete: {len(result)}/{len(symbols)} stocks successful"
         )
-        
+
         return result
+
+    def fetch_index_data(
+        self,
+        index_code: str,
+        start_date: str,
+        end_date: str,
+        frequency: str = "d"
+    ) -> pd.DataFrame:
+        """
+        Fetch index OHLCV data (for benchmark)
+
+        Args:
+            index_code: Index code in PTrade format (e.g., '000300.SS' for CSI300)
+            start_date: Start date (YYYY-MM-DD)
+            end_date: End date (YYYY-MM-DD)
+            frequency: d=daily, w=weekly, m=monthly
+
+        Returns:
+            DataFrame with columns [date, open, high, low, close, volume, amount]
+            with date as DatetimeIndex
+        """
+        bs_code = convert_from_ptrade_code(index_code, "baostock")
+
+        # Fetch basic OHLCV data for index
+        fields = "date,open,high,low,close,volume,amount"
+
+        logger.debug(f"Fetching index data for {index_code}...")
+        rs = bs.query_history_k_data_plus(
+            bs_code,
+            fields,
+            start_date=start_date,
+            end_date=end_date,
+            frequency=frequency,
+            adjustflag="3"  # No adjustment for index
+        )
+
+        if rs.error_code != "0":
+            raise RuntimeError(
+                f"Failed to query index data for {index_code}: {rs.error_msg}"
+            )
+
+        df = rs.get_data()
+
+        if df.empty:
+            logger.warning(f"No index data for {index_code}")
+            return pd.DataFrame()
+
+        # Convert data types
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date")
+
+        # Convert numeric columns
+        numeric_cols = ["open", "high", "low", "close", "volume", "amount"]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        # Rename 'amount' to 'money' for consistency with stock data format
+        if "amount" in df.columns:
+            df = df.rename(columns={"amount": "money"})
+
+        logger.info(
+            f"Fetched index data for {index_code}: {len(df)} rows"
+        )
+
+        return df

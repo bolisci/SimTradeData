@@ -248,7 +248,9 @@ class EfficientBaoStockDownloader:
                     if quarters:
                         all_fundamentals = []
 
-                        for year, quarter in quarters:
+                        # Add progress bar for quarterly fundamentals
+                        quarter_desc = f"{symbol} fundamentals"
+                        for year, quarter in tqdm(quarters, desc=quarter_desc, leave=False, position=2):
                             fund_df = self.standard_fetcher.fetch_quarterly_fundamentals(
                                 symbol, year, quarter
                             )
@@ -327,22 +329,23 @@ class EfficientBaoStockDownloader:
     ) -> list:
         """
         Download data for a batch of stocks sequentially
-        
+
         Note: BaoStock does not support multi-threading, so we process
         stocks sequentially instead of using ThreadPoolExecutor.
-        
+
         Args:
             stock_batch: List of stock codes
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
-        
+
         Returns:
             List of metadata dicts
         """
         metadata_list = []
-        
+
         # Sequential processing (BaoStock doesn't support multi-threading)
-        for stock in stock_batch:
+        # Add progress bar for stocks in current batch
+        for stock in tqdm(stock_batch, desc="Batch stocks", leave=False, position=1):
             try:
                 metadata = self.download_stock_data(stock, start_date, end_date)
                 if metadata:
@@ -528,7 +531,7 @@ def download_all_data(incremental_days=None, skip_fundamentals=False, skip_metad
             success = 0
             fail = 0
             
-            for batch_idx, batch in enumerate(tqdm(batches, desc="Downloading batches")):
+            for batch_idx, batch in enumerate(tqdm(batches, desc="Downloading batches", position=0)):
                 try:
                     metadata_list = downloader.download_batch(batch, start_date_str, end_date_str)
                     all_metadata.extend(metadata_list)

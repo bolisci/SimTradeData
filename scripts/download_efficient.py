@@ -358,6 +358,84 @@ class EfficientBaoStockDownloader:
 
         return metadata_list
 
+    def download_global_item(
+        self,
+        name: str,
+        fetch_func: callable,
+        write_func: callable,
+        key: str,
+        preprocess_func: callable = None,
+        **fetch_kwargs
+    ) -> bool:
+        """
+        Unified interface for downloading global data items
+
+        This method provides consistent error handling, logging, and user feedback
+        for all global data downloads (trade_days, benchmark, etc.)
+
+        Args:
+            name: Human-readable name for logging (e.g., "Trading calendar")
+            fetch_func: Function to fetch data
+            write_func: Function to write data
+            key: HDF5 key (e.g., '/trade_days')
+            preprocess_func: Optional function to preprocess data before writing
+            **fetch_kwargs: Keyword arguments to pass to fetch_func
+
+        Returns:
+            True if successful, False otherwise
+
+        Examples:
+            # Trading calendar
+            self.download_global_item(
+                "Trading calendar",
+                self.standard_fetcher.fetch_trade_calendar,
+                self.writer.write_trade_days,
+                '/trade_days',
+                preprocess_func=lambda df: df[df['is_trading_day'] == '1'],
+                start_date=start_date,
+                end_date=end_date
+            )
+
+            # Benchmark
+            self.download_global_item(
+                "Benchmark index",
+                self.unified_fetcher.fetch_index_data,
+                self.writer.write_benchmark,
+                '/benchmark',
+                index_code='000300.SS',
+                start_date=start_date,
+                end_date=end_date
+            )
+        """
+        try:
+            print(f"  Downloading {name}...")
+            data = fetch_func(**fetch_kwargs)
+
+            if data is None or data.empty:
+                print(f"  {name}: No data fetched (warning)")
+                logger.warning(f"No {name} data fetched")
+                return False
+
+            # Preprocess if needed
+            if preprocess_func:
+                data = preprocess_func(data)
+                if data.empty:
+                    print(f"  {name}: No data after preprocessing (warning)")
+                    logger.warning(f"No {name} data after preprocessing")
+                    return False
+
+            # Write data using merge method
+            self.writer.merge_and_write_global_data(key, data, write_func)
+
+            print(f"  {name}: {len(data)} records fetched")
+            logger.info(f"Downloaded {name}: {len(data)} records")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to download {name}: {e}")
+            print(f"  {name}: Failed to download - {e}")
+            return False
+
 
 def download_all_data(incremental_days=None, skip_fundamentals=False, skip_metadata=False, start_date=None, resume=True):
     """
@@ -572,78 +650,69 @@ def download_all_data(incremental_days=None, skip_fundamentals=False, skip_metad
                     pass  # No existing metadata, use new data only
 
                 downloader.writer.write_stock_metadata(meta_df, mode='a')
-            
+
             # === 5. Download global data ===
             print("\nDownloading global data...")
-            
-            # 5.1 Trading calendar
-            try:
-                new_trade_days = downloader.standard_fetcher.fetch_trade_calendar(
-                    start_date_str, end_date_str
-                )
-                if not new_trade_days.empty:
-                    new_trade_days = new_trade_days[new_trade_days['is_trading_day'] == '1']
-                    new_trade_days['trade_date'] = pd.to_datetime(new_trade_days['calendar_date'])
-                    new_trade_days = new_trade_days[['trade_date']].set_index('trade_date')
 
-                    # Use refactored merge method
-                    downloader.writer.merge_and_write_global_data(
-                        '/trade_days',
-                        new_trade_days,
-                        downloader.writer.write_trade_days
-                    )
-                    print(f"  Trading calendar: {len(new_trade_days)} days fetched")
-                else:
-                    print("  Trading calendar: No data fetched (warning)")
-                    logger.warning("No trading calendar data fetched")
-            except Exception as e:
-                logger.error(f"Failed to download trading calendar: {e}")
-                print(f"  Trading calendar: Failed to download - {e}")
+            # 5.1 Trading calendar
+            def preprocess_trade_days(df):
+                """Preprocess trading calendar data"""
+                df = df[df['is_trading_day'] == '1']
+                df['trade_date'] = pd.to_datetime(df['calendar_date'])
+                df = df[['trade_date']].set_index('trade_date')
+                return df
+
+            downloader.download_global_item(
+                name="Trading calendar",
+                fetch_func=downloader.standard_fetcher.fetch_trade_calendar,
+                write_func=downloader.writer.write_trade_days,
+                key='/trade_days',
+                preprocess_func=preprocess_trade_days,
+                start_date=start_date_str,
+                end_date=end_date_str
+            )
 
             # 5.2 Benchmark index data
-            # Use configured benchmark index (default: CSI300)
             BENCHMARK_INDEX = BENCHMARK_CONFIG['default_index']
-            try:
-                print(f"  Downloading benchmark index ({BENCHMARK_INDEX})...")
-                benchmark_df = downloader.unified_fetcher.fetch_index_data(
-                    BENCHMARK_INDEX, start_date_str, end_date_str
-                )
-
-                if not benchmark_df.empty:
-                    # Use refactored merge method
-                    downloader.writer.merge_and_write_global_data(
-                        '/benchmark',
-                        benchmark_df,
-                        downloader.writer.write_benchmark
-                    )
-                    print(f"  Benchmark index: {len(benchmark_df)} days fetched")
-                else:
-                    print("  Benchmark index: No data fetched (warning)")
-                    logger.warning(f"No benchmark data fetched for {BENCHMARK_INDEX}")
-            except Exception as e:
-                logger.error(f"Failed to download benchmark data: {e}")
-                print(f"  Benchmark index: Failed to download - {e}")
+            downloader.download_global_item(
+                name=f"Benchmark index ({BENCHMARK_INDEX})",
+                fetch_func=downloader.unified_fetcher.fetch_index_data,
+                write_func=downloader.writer.write_benchmark,
+                key='/benchmark',
+                index_code=BENCHMARK_INDEX,
+                start_date=start_date_str,
+                end_date=end_date_str
+            )
 
             # 5.3 Index constituents
-            index_constituents = {}
-            for date_obj in tqdm(sample_dates, desc="Downloading index constituents"):
-                date_str = date_obj.strftime("%Y%m%d")
-                index_constituents[date_str] = {}
-                
-                for index_code in ['000016.SS', '000300.SS', '000905.SS']:
-                    try:
-                        stocks_df = downloader.standard_fetcher.fetch_index_stocks(
-                            index_code, date_obj.strftime("%Y-%m-%d")
-                        )
-                        if not stocks_df.empty:
-                            from simtradedata.utils.code_utils import convert_to_ptrade_code
-                            ptrade_codes = [
-                                convert_to_ptrade_code(code, "baostock")
-                                for code in stocks_df['code'].tolist()
-                            ]
-                            index_constituents[date_str][index_code] = ptrade_codes
-                    except Exception as e:
-                        logger.error(f"Failed to get index {index_code} for {date_str}: {e}")
+            try:
+                print("  Downloading index constituents...")
+                index_constituents = {}
+                for date_obj in tqdm(sample_dates, desc="Index constituents", leave=False):
+                    date_str = date_obj.strftime("%Y%m%d")
+                    index_constituents[date_str] = {}
+
+                    for index_code in ['000016.SS', '000300.SS', '000905.SS']:
+                        try:
+                            stocks_df = downloader.standard_fetcher.fetch_index_stocks(
+                                index_code, date_obj.strftime("%Y-%m-%d")
+                            )
+                            if not stocks_df.empty:
+                                from simtradedata.utils.code_utils import convert_to_ptrade_code
+                                ptrade_codes = [
+                                    convert_to_ptrade_code(code, "baostock")
+                                    for code in stocks_df['code'].tolist()
+                                ]
+                                index_constituents[date_str][index_code] = ptrade_codes
+                        except Exception as e:
+                            logger.warning(f"Failed to get index {index_code} for {date_str}: {e}")
+
+                constituent_count = sum(len(dates) for dates in index_constituents.values())
+                print(f"  Index constituents: {len(index_constituents)} dates, {constituent_count} entries")
+            except Exception as e:
+                logger.error(f"Failed to download index constituents: {e}")
+                print(f"  Index constituents: Failed to download - {e}")
+                index_constituents = {}  # Use empty dict on failure
 
             # 5.4 Save global metadata
             # Read existing metadata to preserve historical information

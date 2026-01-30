@@ -466,39 +466,51 @@ def download_all_data(
         downloader.standard_fetcher.login()
 
         try:
-            # Get stock pool by sampling monthly dates
+            # Get stock pool - use cached if available, only sample new dates
             from simtradedata.utils.sampling import (
                 generate_monthly_end_dates,
                 generate_monthly_start_dates,
             )
+            from simtradedata.utils.code_utils import convert_to_ptrade_code
 
             sample_dates = generate_monthly_start_dates(
                 START_DATE, end_date.strftime("%Y-%m-%d")
             )
 
-            print("\nGetting stock pool...")
-            all_stocks = set()
-            for date_obj in tqdm(sample_dates, desc="Sampling stock pool"):
-                date_str = date_obj.strftime("%Y-%m-%d")
-                try:
-                    rs = bs.query_all_stock(day=date_str)
-                    if rs.error_code == "0":
-                        stocks_df = rs.get_data()
-                        if not stocks_df.empty:
-                            from simtradedata.utils.code_utils import (
-                                convert_to_ptrade_code,
-                            )
+            # Check cached data
+            sampled_dates = set(downloader.writer.get_sampled_dates())
+            cached_pool = downloader.writer.get_stock_pool()
 
-                            ptrade_codes = [
-                                convert_to_ptrade_code(code, "baostock")
-                                for code in stocks_df["code"].tolist()
-                            ]
-                            all_stocks.update(ptrade_codes)
-                except Exception as e:
-                    logger.error(f"Failed to get stock pool for {date_str}: {e}")
+            # Filter to only unsampled dates
+            new_dates = [d for d in sample_dates if d.date() not in sampled_dates]
 
-            stock_pool = sorted(list(all_stocks))
-            print(f"Total stocks: {len(stock_pool)}")
+            if cached_pool and not new_dates:
+                print(f"\nUsing cached stock pool: {len(cached_pool)} stocks")
+                stock_pool = cached_pool
+            else:
+                # Sample new dates (or all if first run)
+                dates_to_sample = new_dates if cached_pool else sample_dates
+                desc = f"Sampling {len(dates_to_sample)} new dates" if cached_pool else "Sampling stock pool"
+                print(f"\n{desc}...")
+
+                all_stocks = set(cached_pool) if cached_pool else set()
+                for date_obj in tqdm(dates_to_sample, desc=desc):
+                    date_str = date_obj.strftime("%Y-%m-%d")
+                    try:
+                        rs = bs.query_all_stock(day=date_str)
+                        if rs.error_code == "0":
+                            stocks_df = rs.get_data()
+                            if not stocks_df.empty:
+                                codes = [convert_to_ptrade_code(c, "baostock")
+                                         for c in stocks_df["code"].tolist()]
+                                all_stocks.update(codes)
+                                downloader.writer.update_stock_pool(codes, date_obj.date())
+                        downloader.writer.add_sampled_date(date_obj.date())
+                    except Exception as e:
+                        logger.error(f"Failed to sample {date_str}: {e}")
+
+                stock_pool = sorted(list(all_stocks))
+                print(f"Total stocks: {len(stock_pool)}")
 
             # Download in batches
             batches = [

@@ -106,6 +106,7 @@ class MootdxDownloader:
         self.writer = DuckDBWriter(db_path=str(self.db_path))
 
         self.skip_fundamentals = skip_fundamentals
+        self.download_dir = download_dir
         self.failed_stocks = []
 
     def get_incremental_start_date(self, symbol: str) -> str:
@@ -140,6 +141,15 @@ class MootdxDownloader:
             if df.empty:
                 logger.warning(f"No data for {symbol}")
                 return False
+
+            # Filter out empty rows (halted stocks return rows with all NaN)
+            price_cols = ["open", "high", "low", "close"]
+            available_cols = [c for c in price_cols if c in df.columns]
+            if available_cols:
+                df = df.dropna(subset=available_cols, how="all")
+                if df.empty:
+                    logger.warning(f"No valid data for {symbol} (all rows empty)")
+                    return False
 
             # Write market data (set date as index)
             if "date" in df.columns:
@@ -267,11 +277,15 @@ class MootdxDownloader:
         self, start_date: str, end_date: str
     ) -> None:
         """
-        Download batch financial data by quarter.
+        Download batch financial data by quarter with hash-based incremental updates.
 
         Uses Affair API which downloads one ZIP per quarter containing
         all stocks' data - much more efficient than per-stock queries.
+
+        Hash verification: Compares remote file hash with stored hash to detect
+        updates. If hash differs, deletes old data and re-downloads.
         """
+        from simtradedata.fetchers.mootdx_affair_fetcher import MootdxAffairFetcher
         from simtradedata.utils.ttm_calculator import get_quarters_in_range
 
         quarters = get_quarters_in_range(start_date, end_date)
@@ -279,17 +293,73 @@ class MootdxDownloader:
             print("  No quarters in date range")
             return
 
-        completed = self.writer.get_completed_fundamental_quarters()
-        pending = [(y, q) for y, q in quarters if (y, q) not in completed]
+        # Create affair fetcher for hash lookups (same download dir as unified_fetcher)
+        affair_fetcher = MootdxAffairFetcher(download_dir=self.download_dir)
+
+        print(f"  Total quarters: {len(quarters)}")
+        print("  Checking for incremental updates...")
+
+        # Get already completed quarters (may not have hash if downloaded with old code)
+        completed_quarters = self.writer.get_completed_fundamental_quarters()
+
+        # Batch fetch remote file info (one API call instead of N)
+        try:
+            remote_files = affair_fetcher.list_available_reports()
+            remote_hash_map = {f.get("filename"): f.get("hash") for f in remote_files}
+        except Exception as e:
+            logger.warning(f"Failed to fetch remote file list: {e}")
+            remote_hash_map = {}
+
+        pending = []
+        skipped = 0
+
+        for year, quarter in quarters:
+            filename = affair_fetcher.get_quarter_filename(year, quarter)
+            remote_hash = remote_hash_map.get(filename)
+            local_hash = self.writer.get_fundamental_quarter_hash(year, quarter)
+
+            if remote_hash is None:
+                # File not available on server
+                logger.info(f"File {filename} not available on TDX server")
+                continue
+
+            # If already completed and hash matches (or no local hash recorded), skip
+            if (year, quarter) in completed_quarters:
+                if local_hash is None:
+                    # Old record without hash - trust it as complete
+                    skipped += 1
+                    logger.debug(f"Quarter {year}Q{quarter} already completed (no hash)")
+                    continue
+                elif local_hash == remote_hash:
+                    # Hash match, skip
+                    skipped += 1
+                    logger.debug(f"Hash match for {year}Q{quarter}, skipping")
+                    continue
+                else:
+                    # Hash differs, need to re-download
+                    print(f"    {year}Q{quarter}: hash changed, will re-download")
+                    logger.info(
+                        f"Hash changed for {year}Q{quarter}: {local_hash} -> {remote_hash}"
+                    )
+
+            pending.append((year, quarter, filename, remote_hash))
 
         if not pending:
-            print("  All quarters already completed")
+            print(f"  All {len(quarters)} quarters up-to-date (hash verified)")
             return
 
-        print(f"  Total: {len(quarters)}, completed: {len(quarters) - len(pending)}, pending: {len(pending)}")
+        print(
+            f"  Pending: {len(pending)}, skipped (hash match): {skipped}"
+        )
 
-        for qi, (year, quarter) in enumerate(pending, 1):
+        for qi, (year, quarter, filename, remote_hash) in enumerate(pending, 1):
             print(f"\n  Quarter {qi}/{len(pending)}: {year}Q{quarter}")
+
+            # Check if we need to delete old data first
+            old_hash = self.writer.get_fundamental_quarter_hash(year, quarter)
+            if old_hash is not None:
+                deleted = self.writer.delete_fundamental_quarter_data(year, quarter)
+                print(f"    Deleted {deleted} old records (hash changed)")
 
             try:
                 fund_df = self.unified_fetcher.fetch_fundamentals_for_quarter(
@@ -298,6 +368,11 @@ class MootdxDownloader:
 
                 if fund_df.empty:
                     logger.warning(f"No fundamentals for {year}Q{quarter}")
+                    # Still mark as completed (empty is valid state)
+                    self.writer.mark_fundamental_quarter_completed(
+                        year, quarter, 0,
+                        filename=filename, file_hash=remote_hash or ""
+                    )
                     continue
 
                 # Write per-stock fundamentals
@@ -326,15 +401,17 @@ class MootdxDownloader:
                                 logger.warning(
                                     f"Failed to write fundamentals for {code}: {e}"
                                 )
+
+                        # Record progress in same transaction
+                        self.writer.mark_fundamental_quarter_completed(
+                            year, quarter, success_count,
+                            filename=filename, file_hash=remote_hash or ""
+                        )
                         self.writer.commit()
+                        print(f"    Completed: {success_count} stocks (hash: {remote_hash[:8]}...)")
                     except Exception:
                         self.writer.rollback()
                         raise
-
-                self.writer.mark_fundamental_quarter_completed(
-                    year, quarter, success_count
-                )
-                print(f"    Completed: {success_count} stocks")
 
             except Exception as e:
                 logger.error(f"Failed to download fundamentals {year}Q{quarter}: {e}")
@@ -382,49 +459,66 @@ def download_all_data(
         downloader.unified_fetcher.login()
 
         try:
-            # Get stock list from mootdx
-            print("\nFetching stock list from mootdx...")
-            stock_pool = downloader.unified_fetcher.fetch_stock_list()
-            print(f"Total stocks: {len(stock_pool)}")
+            # Check if stocks data is already up to date
+            global_max_date = downloader.writer.get_max_date("stocks")
+            skip_stock_download = False
+            if global_max_date:
+                # Check if there's any new trading day since global_max_date
+                # by fetching a single stock's data for the date range
+                test_df = downloader.unified_fetcher.fetch_daily_data(
+                    "000001.SZ",
+                    (datetime.strptime(global_max_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    end_date_str,
+                )
+                if test_df.empty:
+                    print(f"\nStocks data already up to date (max_date: {global_max_date})")
+                    print("No new trading days since last update, skipping stock download.")
+                    skip_stock_download = True
 
-            if not stock_pool:
-                print("Error: No stocks found")
-                return
+            if not skip_stock_download:
+                # Get stock list from mootdx
+                print("\nFetching stock list from mootdx...")
+                stock_pool = downloader.unified_fetcher.fetch_stock_list()
+                print(f"Total stocks: {len(stock_pool)}")
 
-            # Download in batches
-            batches = [
-                stock_pool[i : i + BATCH_SIZE]
-                for i in range(0, len(stock_pool), BATCH_SIZE)
-            ]
+                if not stock_pool:
+                    print("Error: No stocks found")
+                    return
 
-            print(f"\nProcessing {len(stock_pool)} stocks in {len(batches)} batches...")
-            print(f"Batch size: {BATCH_SIZE}")
-            print("=" * 60)
+                # Download in batches
+                batches = [
+                    stock_pool[i : i + BATCH_SIZE]
+                    for i in range(0, len(stock_pool), BATCH_SIZE)
+                ]
 
-            total_success = 0
+                print(f"\nProcessing {len(stock_pool)} stocks in {len(batches)} batches...")
+                print(f"Batch size: {BATCH_SIZE}")
+                print("=" * 60)
 
-            with tqdm(
-                total=len(stock_pool),
-                desc="Downloading stocks",
-                unit="stock",
-                ncols=100,
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
-            ) as pbar:
-                for batch in batches:
-                    try:
-                        success = downloader.download_batch(
-                            batch, start_date_str, end_date_str, pbar
-                        )
-                        total_success += success
-                    except Exception as e:
-                        logger.error(f"Batch failed: {e}")
-                        pbar.update(len(batch))
+                total_success = 0
 
-            print("=" * 60)
-            print(
-                f"Download complete: {total_success} updated, "
-                f"{len(stock_pool) - total_success} skipped/failed"
-            )
+                with tqdm(
+                    total=len(stock_pool),
+                    desc="Downloading stocks",
+                    unit="stock",
+                    ncols=100,
+                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+                ) as pbar:
+                    for batch in batches:
+                        try:
+                            success = downloader.download_batch(
+                                batch, start_date_str, end_date_str, pbar
+                            )
+                            total_success += success
+                        except Exception as e:
+                            logger.error(f"Batch failed: {e}")
+                            pbar.update(len(batch))
+
+                print("=" * 60)
+                print(
+                    f"Download complete: {total_success} updated, "
+                    f"{len(stock_pool) - total_success} skipped/failed"
+                )
 
             # Download batch fundamentals
             if not skip_fundamentals:

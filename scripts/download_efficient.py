@@ -99,6 +99,7 @@ class EfficientBaoStockDownloader:
         db_path: str = DEFAULT_DB_PATH,
         skip_fundamentals: bool = False,
         skip_metadata: bool = False,
+        valuation_only: bool = False,
     ):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,6 +111,7 @@ class EfficientBaoStockDownloader:
 
         self.skip_fundamentals = skip_fundamentals
         self.skip_metadata = skip_metadata
+        self.valuation_only = valuation_only
 
         self.status_cache = {}
         self.failed_stocks = []
@@ -119,7 +121,8 @@ class EfficientBaoStockDownloader:
         Get incremental start date for a symbol.
         Returns next day after MAX(date), or START_DATE if no data.
         """
-        max_date = self.writer.get_max_date("stocks", symbol)
+        table = "valuation" if self.valuation_only else "stocks"
+        max_date = self.writer.get_max_date(table, symbol)
         if max_date:
             next_day = datetime.strptime(max_date, "%Y-%m-%d") + timedelta(days=1)
             return next_day.strftime("%Y-%m-%d")
@@ -149,7 +152,20 @@ class EfficientBaoStockDownloader:
 
             split_data = self.data_splitter.split_data(unified_df)
 
-            # Write market data
+            # In valuation-only mode, skip market data and related downloads
+            if self.valuation_only:
+                # Write valuation data
+                valuation_data = split_data.get("valuation")
+                if valuation_data is not None and not valuation_data.empty:
+                    self.writer.write_valuation(symbol, valuation_data)
+
+                # Cache status data
+                if "status" in split_data:
+                    self.status_cache[symbol] = split_data["status"]
+
+                return None
+
+            # Full mode: write market data
             if "market" in split_data:
                 self.writer.write_market_data(symbol, split_data["market"])
 
@@ -420,6 +436,7 @@ def download_all_data(
     skip_fundamentals=False,
     skip_metadata=False,
     start_date=None,
+    valuation_only=False,
 ):
     """
     Main download function with auto-incremental logic.
@@ -432,6 +449,8 @@ def download_all_data(
         print("=" * 70)
         print("Mode: Auto-incremental (queries MAX(date) per symbol)")
 
+        if valuation_only:
+            print("Valuation-only mode: downloading PE/PB/PS/PCF/turnover + status only")
         if skip_fundamentals:
             print("Fundamentals: Skipped")
         if skip_metadata:
@@ -461,6 +480,7 @@ def download_all_data(
             db_path=str(db_path),
             skip_fundamentals=skip_fundamentals,
             skip_metadata=skip_metadata,
+            valuation_only=valuation_only,
         )
         downloader.unified_fetcher.login()
         downloader.standard_fetcher.login()
@@ -542,56 +562,86 @@ def download_all_data(
                 for i in range(0, len(stock_pool), BATCH_SIZE)
             ]
 
-            print(f"\nProcessing {len(stock_pool)} stocks in {len(batches)} batches...")
-            print(f"Batch size: {BATCH_SIZE}")
-            print("Note: Each symbol auto-detects its incremental start date")
-            print("=" * 60)
+            # Check if data is already up to date by checking global MAX(date)
+            check_table = "valuation" if valuation_only else "stocks"
+            global_max_date = downloader.writer.get_max_date(check_table)
+            skip_stock_download = False
 
-            all_metadata = []
-            success = 0
-            skipped = 0
-
-            # Use a single progress bar for total stocks with more info
-            with tqdm(
-                total=len(stock_pool),
-                desc="Downloading stocks",
-                unit="stock",
-                ncols=100,
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
-            ) as pbar:
-                for batch in batches:
+            if global_max_date:
+                # Use a sample stock to check if there's new data
+                test_start = (datetime.strptime(global_max_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                if test_start > end_date_str:
+                    print(f"\n{check_table.capitalize()} data already up to date (max_date: {global_max_date})")
+                    skip_stock_download = True
+                else:
+                    # Try fetching a sample stock to see if there's new data
                     try:
-                        metadata_list = downloader.download_batch(
-                            batch, start_date_str, end_date_str, pbar
+                        test_df = downloader.unified_fetcher.fetch_unified_daily_data(
+                            "000001.SZ", test_start, end_date_str
                         )
-                        all_metadata.extend(metadata_list)
-                        success += len(metadata_list)
-                        skipped += len(batch) - len(metadata_list)
-                    except Exception as e:
-                        logger.error(f"Batch failed: {e}")
-                        pbar.update(len(batch))
+                        if test_df.empty:
+                            print(f"\n{check_table.capitalize()} data already up to date (max_date: {global_max_date})")
+                            print("No new trading days since last update, skipping stock download.")
+                            skip_stock_download = True
+                    except Exception:
+                        pass  # If check fails, proceed with download
 
-            print("=" * 60)
-            print(f"Download complete: {success} updated, {skipped} skipped/failed")
+            if skip_stock_download:
+                all_metadata = []
+                success = 0
+                skipped = len(stock_pool)
+            else:
+                print(f"\nProcessing {len(stock_pool)} stocks in {len(batches)} batches...")
+                print(f"Batch size: {BATCH_SIZE}")
+                print("Note: Each symbol auto-detects its incremental start date")
+                print("=" * 60)
 
-            # Save metadata
-            if all_metadata:
+                all_metadata = []
+                success = 0
+                skipped = 0
+
+                # Use a single progress bar for total stocks with more info
+                with tqdm(
+                    total=len(stock_pool),
+                    desc="Downloading stocks",
+                    unit="stock",
+                    ncols=100,
+                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+                ) as pbar:
+                    for batch in batches:
+                        try:
+                            metadata_list = downloader.download_batch(
+                                batch, start_date_str, end_date_str, pbar
+                            )
+                            all_metadata.extend(metadata_list)
+                            success += len(metadata_list)
+                            skipped += len(batch) - len(metadata_list)
+                        except Exception as e:
+                            logger.error(f"Batch failed: {e}")
+                            pbar.update(len(batch))
+
+                print("=" * 60)
+                print(f"Download complete: {success} updated, {skipped} skipped/failed")
+
+            # Save metadata (skip in valuation-only mode)
+            if all_metadata and not valuation_only:
                 print("\nSaving stock metadata...")
                 meta_df = pd.DataFrame(all_metadata)
                 meta_df.set_index("stock_code", inplace=True)
                 meta_df = meta_df.sort_index()
                 downloader.writer.write_stock_metadata(meta_df)
 
-            # Aggregate and save stock status (ST/HALT)
-            print("\nAggregating stock status...")
-            try:
-                downloader.aggregate_and_write_status()
-                print("  Stock status saved")
-            except Exception as e:
-                logger.error(f"Failed to aggregate stock status: {e}")
+            # Aggregate and save stock status (ST/HALT) - only if we have new data
+            if not skip_stock_download and downloader.status_cache:
+                print("\nAggregating stock status...")
+                try:
+                    downloader.aggregate_and_write_status()
+                    print("  Stock status saved")
+                except Exception as e:
+                    logger.error(f"Failed to aggregate stock status: {e}")
 
-            # Download quarterly fundamentals (organized by quarter)
-            if not skip_fundamentals:
+            # Download quarterly fundamentals (skip in valuation-only mode)
+            if not skip_fundamentals and not valuation_only:
                 print("\nDownloading quarterly fundamentals...")
                 try:
                     downloader.download_fundamentals_by_quarter(
@@ -603,65 +653,86 @@ def download_all_data(
             # Download global data
             print("\nDownloading global data...")
 
-            # Trading calendar
-            print("  Trading calendar...")
-            try:
-                trade_cal = downloader.standard_fetcher.fetch_trade_calendar(
-                    start_date_str, end_date_str
-                )
-                if not trade_cal.empty:
-                    trade_days = trade_cal[trade_cal["is_trading_day"] == "1"]
-                    trade_days = trade_days.rename(
-                        columns={"calendar_date": "trade_date"}
+            # Trading calendar (skip in valuation-only mode)
+            if not valuation_only:
+                print("  Trading calendar...")
+                try:
+                    trade_cal = downloader.standard_fetcher.fetch_trade_calendar(
+                        start_date_str, end_date_str
                     )
-                    downloader.writer.write_trade_days(trade_days)
-                    print(f"    {len(trade_days)} days")
-            except Exception as e:
-                logger.error(f"Failed to download trading calendar: {e}")
+                    if not trade_cal.empty:
+                        trade_days = trade_cal[trade_cal["is_trading_day"] == "1"]
+                        trade_days = trade_days.rename(
+                            columns={"calendar_date": "trade_date"}
+                        )
+                        downloader.writer.write_trade_days(trade_days)
+                        print(f"    {len(trade_days)} days")
+                except Exception as e:
+                    logger.error(f"Failed to download trading calendar: {e}")
 
-            # Benchmark index
-            BENCHMARK_INDEX = BENCHMARK_CONFIG["default_index"]
-            print(f"  Benchmark index ({BENCHMARK_INDEX})...")
-            try:
-                benchmark_df = downloader.unified_fetcher.fetch_index_data(
-                    BENCHMARK_INDEX, start_date_str, end_date_str
-                )
-                if not benchmark_df.empty:
-                    downloader.writer.write_benchmark(benchmark_df)
-                    print(f"    {len(benchmark_df)} days")
-            except Exception as e:
-                logger.error(f"Failed to download benchmark: {e}")
+            # Benchmark index (skip in valuation-only mode)
+            if not valuation_only:
+                BENCHMARK_INDEX = BENCHMARK_CONFIG["default_index"]
+                print(f"  Benchmark index ({BENCHMARK_INDEX})...")
+                try:
+                    benchmark_df = downloader.unified_fetcher.fetch_index_data(
+                        BENCHMARK_INDEX, start_date_str, end_date_str
+                    )
+                    if not benchmark_df.empty:
+                        downloader.writer.write_benchmark(benchmark_df)
+                        print(f"    {len(benchmark_df)} days")
+                except Exception as e:
+                    logger.error(f"Failed to download benchmark: {e}")
 
             # Index constituents (use month-end sampling to match PTrade)
+            # Check existing data to skip already downloaded dates
             print("  Index constituents...")
             try:
+                # Get existing index constituent dates
+                existing_dates = set()
+                try:
+                    result = downloader.writer.conn.execute(
+                        "SELECT DISTINCT date FROM index_constituents"
+                    ).fetchall()
+                    existing_dates = {row[0] for row in result}
+                except Exception:
+                    pass
+
                 index_sample_dates = generate_monthly_end_dates(
                     START_DATE, end_date.strftime("%Y-%m-%d")
                 )
-                for date_obj in index_sample_dates:
-                    date_str = date_obj.strftime("%Y%m%d")
 
-                    for index_code in ["000016.SS", "000300.SS", "000905.SS"]:
-                        try:
-                            stocks_df = downloader.standard_fetcher.fetch_index_stocks(
-                                index_code, date_obj.strftime("%Y-%m-%d")
-                            )
-                            if not stocks_df.empty:
-                                from simtradedata.utils.code_utils import (
-                                    convert_to_ptrade_code,
+                # Filter to only new dates
+                new_dates = [d for d in index_sample_dates if d.strftime("%Y%m%d") not in existing_dates]
+
+                if not new_dates:
+                    print(f"    All {len(index_sample_dates)} dates already downloaded")
+                else:
+                    print(f"    Downloading {len(new_dates)} new dates (skipping {len(existing_dates)} existing)...")
+                    for date_obj in new_dates:
+                        date_str = date_obj.strftime("%Y%m%d")
+
+                        for index_code in ["000016.SS", "000300.SS", "000905.SS"]:
+                            try:
+                                stocks_df = downloader.standard_fetcher.fetch_index_stocks(
+                                    index_code, date_obj.strftime("%Y-%m-%d")
                                 )
+                                if not stocks_df.empty:
+                                    from simtradedata.utils.code_utils import (
+                                        convert_to_ptrade_code,
+                                    )
 
-                                ptrade_codes = [
-                                    convert_to_ptrade_code(code, "baostock")
-                                    for code in stocks_df["code"].tolist()
-                                ]
-                                downloader.writer.write_index_constituents(
-                                    date_str, index_code, ptrade_codes
-                                )
-                        except Exception as e:
-                            logger.warning(f"Index {index_code} {date_str}: {e}")
+                                    ptrade_codes = [
+                                        convert_to_ptrade_code(code, "baostock")
+                                        for code in stocks_df["code"].tolist()
+                                    ]
+                                    downloader.writer.write_index_constituents(
+                                        date_str, index_code, ptrade_codes
+                                    )
+                            except Exception as e:
+                                logger.warning(f"Index {index_code} {date_str}: {e}")
 
-                print(f"    {len(index_sample_dates)} dates")
+                    print(f"    Done ({len(new_dates)} dates)")
             except Exception as e:
                 logger.error(f"Failed to download index constituents: {e}")
 
@@ -707,6 +778,11 @@ if __name__ == "__main__":
         default=None,
         help="Override default start date (YYYY-MM-DD)",
     )
+    parser.add_argument(
+        "--valuation-only",
+        action="store_true",
+        help="Only download valuation (PE/PB/PS/PCF/turnover) + status + index constituents",
+    )
 
     args = parser.parse_args()
 
@@ -714,4 +790,5 @@ if __name__ == "__main__":
         skip_fundamentals=args.skip_fundamentals,
         skip_metadata=args.skip_metadata,
         start_date=args.start_date,
+        valuation_only=args.valuation_only,
     )

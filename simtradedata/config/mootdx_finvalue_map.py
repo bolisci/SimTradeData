@@ -125,25 +125,30 @@ CORE_FUNDAMENTAL_FIELDS = [
 ]
 
 
-def parse_finvalue_date(raw_date: int) -> str:
+def parse_finvalue_date(raw_date: int) -> str | None:
     """
-    Parse FINVALUE date format (YYMMDD) to ISO date string.
+    Parse FINVALUE date to ISO date string.
+
+    Supports both formats:
+    - YYMMDD (6-digit): e.g., 231231 -> '2023-12-31'
+    - YYYYMMDD (8-digit): e.g., 20231231 -> '2023-12-31'
 
     Args:
-        raw_date: Date in YYMMDD format (e.g., 231231 for 2023-12-31)
+        raw_date: Date in YYMMDD or YYYYMMDD format
 
     Returns:
-        ISO date string (YYYY-MM-DD)
-
-    Examples:
-        >>> parse_finvalue_date(231231)
-        '2023-12-31'
-        >>> parse_finvalue_date(150930)
-        '2015-09-30'
+        ISO date string (YYYY-MM-DD), or None if invalid
     """
     if not raw_date or raw_date == 0:
         return None
 
-    raw_str = str(int(raw_date)).zfill(6)
+    raw_str = str(int(raw_date))
+
+    if len(raw_str) == 8:
+        # YYYYMMDD format
+        return f"{raw_str[:4]}-{raw_str[4:6]}-{raw_str[6:8]}"
+
+    # YYMMDD format (pad to 6 digits)
+    raw_str = raw_str.zfill(6)
     year_prefix = "20" if int(raw_str[:2]) < 50 else "19"
     return f"{year_prefix}{raw_str[:2]}-{raw_str[2:4]}-{raw_str[4:6]}"

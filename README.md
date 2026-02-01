@@ -1,8 +1,8 @@
 # SimTradeData - 高效量化交易数据下载工具
 
-> **BaoStock + Mootdx 双数据源** | **PTrade格式兼容** | **DuckDB + Parquet存储**
+> **BaoStock + Mootdx 双数据源** | **统一下载命令** | **PTrade格式兼容** | **DuckDB + Parquet存储**
 
-**SimTradeData** 是为 [SimTradeLab](https://github.com/kay-ou/SimTradeLab) 设计的高效数据下载工具。支持 BaoStock 和 Mootdx（通达信）双数据源，采用 DuckDB 作为中间存储，导出为 Parquet 格式，支持高效的增量更新和数据查询。
+**SimTradeData** 是为 [SimTradeLab](https://github.com/kay-ou/SimTradeLab) 设计的高效数据下载工具。支持 BaoStock 和 Mootdx（通达信）双数据源，各取所长自动编排，采用 DuckDB 作为中间存储，导出为 Parquet 格式，支持高效的增量更新和数据查询。
 
 ---
 
@@ -97,53 +97,64 @@ poetry shell
 
 #### 2. 下载数据
 
-支持两种数据源，任选其一：
+**推荐方式：统一下载命令**
 
-**数据源 A：BaoStock（免费，无需安装客户端）**
+一条命令完成所有数据下载，自动编排 Mootdx 和 BaoStock 各自擅长的数据：
 
 ```bash
-# 首次下载：下载全部数据（2017至今）
+# 完整下载（推荐）
+# Mootdx: 行情、复权因子、除权除息、批量财务、交易日历、基准指数
+# BaoStock: 估值指标、ST/停牌状态、指数成分股
+poetry run python scripts/download.py
+
+# 查看数据状态
+poetry run python scripts/download.py --status
+
+# 跳过财务数据（更快）
+poetry run python scripts/download.py --skip-fundamentals
+
+# 仅运行 Mootdx 阶段
+poetry run python scripts/download.py --source mootdx
+
+# 仅运行 BaoStock 阶段
+poetry run python scripts/download.py --source baostock
+```
+
+**数据源分工说明**
+
+| 数据类型 | 负责数据源 | 原因 |
+|---------|-----------|------|
+| 行情 OHLCV | Mootdx | 速度快，本地网络 |
+| 复权因子 | Mootdx | 随行情一起下载 |
+| 除权除息 (XDXR) | Mootdx | 数据更完整 |
+| 批量财务数据 | Mootdx | 一个ZIP=所有股票，远优于逐股查询 |
+| 估值 PE/PB/PS/换手率 | BaoStock | 独有数据 |
+| ST/停牌状态 | BaoStock | 独有数据 |
+| 指数成分股 | BaoStock | 独有数据 |
+| 交易日历 | Mootdx | 随行情一起 |
+| 基准指数 | Mootdx | 随行情一起 |
+
+**单独使用某个数据源**
+
+```bash
+# BaoStock（包含估值数据，但速度较慢）
 poetry run python scripts/download_efficient.py
-
-# 跳过财务数据（更快）
 poetry run python scripts/download_efficient.py --skip-fundamentals
+poetry run python scripts/download_efficient.py --valuation-only  # 仅估值+状态
 
-# 指定起始日期
-poetry run python scripts/download_efficient.py --start-date 2020-01-01
-```
-
-**数据源 B：Mootdx（通达信API，速度更快）**
-
-```bash
-# 首次下载：下载全部数据（2015至今）
+# Mootdx（速度快，但无估值数据）
 poetry run python scripts/download_mootdx.py
-
-# 跳过财务数据（更快）
 poetry run python scripts/download_mootdx.py --skip-fundamentals
-
-# 指定起始日期
-poetry run python scripts/download_mootdx.py --start-date 2020-01-01
-
-# 指定财务数据ZIP下载目录
-poetry run python scripts/download_mootdx.py --download-dir /tmp/tdx_data
 ```
 
-**数据源 C：TDX官方数据包（推荐，最快）**
-
-自动下载通达信官方沪深京日线完整包（~500MB），包含完整历史数据：
+**TDX 官方数据包（最快获取完整历史行情）**
 
 ```bash
-# 自动下载并导入（增量更新）
+# 自动下载通达信官方沪深京日线完整包（~500MB）
 poetry run python scripts/download_tdx_day.py
 
 # 强制重新下载
 poetry run python scripts/download_tdx_day.py --force-download
-
-# 完全重新导入
-poetry run python scripts/download_tdx_day.py --full
-
-# 仅下载不导入
-poetry run python scripts/download_tdx_day.py --download-only
 
 # 使用已下载的文件
 poetry run python scripts/download_tdx_day.py --file hsjday.zip
@@ -171,11 +182,12 @@ cp -r data/parquet/* /path/to/SimTradeLab/data/
 ```
 SimTradeData/
 ├── scripts/
-│   ├── download_efficient.py    # BaoStock 下载脚本
-│   ├── download_mootdx.py       # Mootdx（通达信API）下载脚本
-│   ├── download_tdx_day.py      # TDX 官方日线数据包下载导入脚本
-│   ├── import_tdx_day.py        # TDX .day 文件导入脚本
-│   └── export_parquet.py        # Parquet 导出脚本
+│   ├── download.py                # 统一下载入口（推荐）
+│   ├── download_efficient.py      # BaoStock 下载脚本
+│   ├── download_mootdx.py         # Mootdx（通达信API）下载脚本
+│   ├── download_tdx_day.py        # TDX 官方日线数据包下载导入脚本
+│   ├── import_tdx_day.py          # TDX .day 文件导入脚本
+│   └── export_parquet.py          # Parquet 导出脚本
 ├── simtradedata/
 │   ├── fetchers/
 │   │   ├── base_fetcher.py      # 基础 Fetcher 类
@@ -271,29 +283,34 @@ BATCH_SIZE = 20
 |------|----------|------------|---------------|
 | 速度 | 较慢 | 快 | 最快（一次性下载） |
 | 估值数据 | 有 (PE/PB/PS等) | 无 | 无 |
-| 财务数据 | 有 | 有（批量ZIP） | 无 |
-| 历史起始 | 2017年 | 2015年 | 完整历史 |
+| 财务数据 | 有（逐股查询） | 有（批量ZIP，更快） | 无 |
+| 历史起始 | 2015年 | 2015年 | 完整历史 |
 | 并发支持 | 不支持 | 支持 | N/A |
-| 数据包大小 | - | - | ~500MB |
 
-### BaoStock 限制
-- 不支持并发下载
-- 建议控制请求频率
+> **推荐**：使用 `scripts/download.py` 统一命令，自动让 Mootdx 负责行情和财务，BaoStock 负责估值和状态，各取所长。
 
-### Mootdx 限制
-- 不包含估值指标数据
-- 财务数据通过下载ZIP文件获取
+### 增量更新机制
 
-### TDX 官方数据包
-- 仅包含日线行情数据（OHLCV）
-- 不包含估值、财务数据
-- 适合快速获取完整历史行情
+- **行情数据**：检查是否有新交易日，无新数据时秒级跳过
+- **财务数据**：基于远程文件 hash 增量检查，仅下载有变更的季度
+- **指数成分股**：记录已下载月份，仅下载新月份
+- **中断恢复**：财务数据进度与数据在同一事务中提交，中断后可续传
 
 ### 数据质量
 - 数据来自 BaoStock 免费数据源
 - 仅供学习研究使用
 
 ## 版本历史
+
+### v0.5.0 (2026-02-01) - 统一下载命令
+- 新增 `scripts/download.py` 统一下载入口
+- 自动编排 Mootdx 和 BaoStock 数据源，各取所长
+- 优化增量检测：无新交易日时秒级跳过全部股票
+- 财务数据增量：基于远程文件 hash 检测变更
+- 指数成分股增量：记录已下载月份避免重复
+- 修复 Mootdx Affair API 返回值处理
+- 修复 DuckDB `changes()` 函数兼容性
+- 自动过滤停牌股票的空行数据
 
 ### v0.4.0 (2026-01-30) - DuckDB + Parquet 架构
 - 存储格式从 HDF5 迁移到 DuckDB + Parquet
@@ -330,4 +347,4 @@ BATCH_SIZE = 20
 
 ---
 
-**项目状态**: 生产就绪 | **当前版本**: v0.4.0 | **最后更新**: 2026-01-30
+**项目状态**: 生产就绪 | **当前版本**: v0.5.0 | **最后更新**: 2026-02-01

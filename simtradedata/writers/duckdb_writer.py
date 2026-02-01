@@ -208,9 +208,14 @@ class DuckDBWriter:
                 quarter INTEGER NOT NULL,
                 completed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 stock_count INTEGER DEFAULT 0,
+                filename VARCHAR,
+                file_hash VARCHAR,
                 PRIMARY KEY (year, quarter)
             )
         """)
+
+        # Migrate existing table: add filename and file_hash columns if missing
+        self._migrate_fundamentals_progress()
 
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS version_info (
@@ -226,6 +231,26 @@ class DuckDBWriter:
         self.conn.execute("""
             INSERT OR REPLACE INTO version_info VALUES ('format', 'duckdb')
         """)
+
+    def _migrate_fundamentals_progress(self) -> None:
+        """Migrate fundamentals_progress table to add filename and file_hash columns."""
+        columns = self.conn.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'fundamentals_progress'
+        """).fetchall()
+        column_names = {row[0] for row in columns}
+
+        if "filename" not in column_names:
+            self.conn.execute("""
+                ALTER TABLE fundamentals_progress ADD COLUMN filename VARCHAR
+            """)
+            logger.info("Added filename column to fundamentals_progress")
+
+        if "file_hash" not in column_names:
+            self.conn.execute("""
+                ALTER TABLE fundamentals_progress ADD COLUMN file_hash VARCHAR
+            """)
+            logger.info("Added file_hash column to fundamentals_progress")
 
     def get_sampled_dates(self) -> list:
         """Get list of dates that have already been sampled"""
@@ -296,14 +321,75 @@ class DuckDBWriter:
         ).fetchall()
         return {(row[0], row[1]) for row in result}
 
-    def mark_fundamental_quarter_completed(
-        self, year: int, quarter: int, stock_count: int
-    ) -> None:
-        """Mark a quarter's fundamentals as fully downloaded."""
+    def get_fundamental_quarter_hash(self, year: int, quarter: int) -> Optional[str]:
+        """Get stored hash value for a quarter's financial data.
+
+        Args:
+            year: Year (e.g., 2024)
+            quarter: Quarter (1-4)
+
+        Returns:
+            Hash string if exists, None otherwise
+        """
+        result = self.conn.execute("""
+            SELECT file_hash FROM fundamentals_progress
+            WHERE year = ? AND quarter = ?
+        """, [year, quarter]).fetchone()
+        return result[0] if result else None
+
+    def delete_fundamental_quarter_data(self, year: int, quarter: int) -> int:
+        """Delete all fundamentals data for a specific quarter.
+
+        Args:
+            year: Year (e.g., 2024)
+            quarter: Quarter (1-4)
+
+        Returns:
+            Number of rows deleted
+        """
+        quarter_end = {1: "03-31", 2: "06-30", 3: "09-30", 4: "12-31"}
+        date_str = f"{year}-{quarter_end[quarter]}"
+
+        # Get count before delete (DuckDB doesn't have changes() function)
+        count_result = self.conn.execute("""
+            SELECT COUNT(*) FROM fundamentals WHERE date = ?
+        """, [date_str]).fetchone()
+        count = count_result[0] if count_result else 0
+
         self.conn.execute("""
-            INSERT OR REPLACE INTO fundamentals_progress (year, quarter, stock_count)
-            VALUES (?, ?, ?)
-        """, [year, quarter, stock_count])
+            DELETE FROM fundamentals WHERE date = ?
+        """, [date_str])
+
+        # Also delete the progress record
+        self.conn.execute("""
+            DELETE FROM fundamentals_progress WHERE year = ? AND quarter = ?
+        """, [year, quarter])
+
+        logger.info(f"Deleted {count} fundamentals rows for {year}Q{quarter}")
+        return count
+
+    def mark_fundamental_quarter_completed(
+        self,
+        year: int,
+        quarter: int,
+        stock_count: int,
+        filename: str | None = None,
+        file_hash: str | None = None,
+    ) -> None:
+        """Mark a quarter's fundamentals as fully downloaded.
+
+        Args:
+            year: Year (e.g., 2024)
+            quarter: Quarter (1-4)
+            stock_count: Number of stocks with data
+            filename: Source filename (e.g., 'gpcw20231231.zip')
+            file_hash: Hash value from TDX server for change detection
+        """
+        self.conn.execute("""
+            INSERT OR REPLACE INTO fundamentals_progress
+                (year, quarter, stock_count, filename, file_hash)
+            VALUES (?, ?, ?, ?, ?)
+        """, [year, quarter, stock_count, filename, file_hash])
 
     def close(self) -> None:
         """Close database connection"""
@@ -670,6 +756,55 @@ class DuckDBWriter:
             SELECT COUNT(DISTINCT symbol) FROM stocks
         """).fetchone()
         return result[0] if result else 0
+
+    def get_data_status(self) -> dict:
+        """Get a summary of data completeness across all tables.
+
+        Returns:
+            Dict with table names as keys and summary dicts as values.
+        """
+        status = {}
+        for table in ["stocks", "valuation", "fundamentals", "exrights", "adjust_factors"]:
+            status[table] = self._get_table_summary(table)
+
+        # Add fundamentals quarter progress
+        status["fundamentals_quarters"] = len(self.get_completed_fundamental_quarters())
+
+        # Add metadata counts
+        for table in ["benchmark", "trade_days", "index_constituents", "stock_status"]:
+            status[table] = self._get_table_summary_simple(table)
+
+        return status
+
+    def _get_table_summary(self, table: str) -> dict:
+        """Get row count, stock count, and date range for a symbol-based table."""
+        try:
+            result = self.conn.execute(f"""
+                SELECT
+                    COUNT(*) as row_count,
+                    COUNT(DISTINCT symbol) as stock_count,
+                    MIN(date) as min_date,
+                    MAX(date) as max_date
+                FROM {table}
+            """).fetchone()
+            return {
+                "rows": result[0],
+                "stocks": result[1],
+                "min_date": str(result[2]) if result[2] else None,
+                "max_date": str(result[3]) if result[3] else None,
+            }
+        except Exception:
+            return {"rows": 0, "stocks": 0, "min_date": None, "max_date": None}
+
+    def _get_table_summary_simple(self, table: str) -> dict:
+        """Get row count for a non-symbol table."""
+        try:
+            result = self.conn.execute(f"""
+                SELECT COUNT(*) FROM {table}
+            """).fetchone()
+            return {"rows": result[0]}
+        except Exception:
+            return {"rows": 0}
 
     # ========================================
     # Export to Parquet

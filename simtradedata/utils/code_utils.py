@@ -12,21 +12,24 @@ def convert_to_ptrade_code(code: str, source: str = "baostock") -> str:
 
     Args:
         code: Stock code in source format
-        source: Data source name ('baostock', 'qstock', 'yahoo')
+        source: Data source name ('baostock', 'qstock', 'yahoo', 'yfinance')
 
     Returns:
-        Stock code in PTrade format (e.g., '600000.SS', '000001.SZ')
+        Stock code in PTrade format (e.g., '600000.SS', '000001.SZ', 'AAPL.US')
 
     Note:
         PTrade/SimTradeLab uses:
         - Shanghai stocks: .SS (not .SH)
         - Shenzhen stocks: .SZ
+        - US stocks: .US
 
     Examples:
         >>> convert_to_ptrade_code('sh.600000', 'baostock')
         '600000.SS'
         >>> convert_to_ptrade_code('000001', 'qstock')
         '000001.SZ'
+        >>> convert_to_ptrade_code('AAPL', 'yfinance')
+        'AAPL.US'
     """
     if source == "baostock":
         # BaoStock format: sh.600000, sz.000001
@@ -51,6 +54,12 @@ def convert_to_ptrade_code(code: str, source: str = "baostock") -> str:
         # Yahoo already uses .SS, so no conversion needed
         return code
 
+    elif source == "yfinance":
+        # yfinance raw ticker: AAPL, MSFT, GOOGL -> AAPL.US, MSFT.US
+        if "." not in code:
+            return f"{code}.US"
+        return code
+
     return code
 
 
@@ -59,8 +68,9 @@ def convert_from_ptrade_code(code: str, target_source: str) -> str:
     Convert PTrade format code to target source format
 
     Args:
-        code: Stock code in PTrade format (e.g., '600000.SS')
-        target_source: Target source name ('baostock', 'qstock', 'yahoo', 'mootdx')
+        code: Stock code in PTrade format (e.g., '600000.SS', 'AAPL.US')
+        target_source: Target source name ('baostock', 'qstock', 'yahoo',
+                       'mootdx', 'yfinance')
 
     Returns:
         Stock code in target source format
@@ -72,6 +82,8 @@ def convert_from_ptrade_code(code: str, target_source: str) -> str:
         '000001'
         >>> convert_from_ptrade_code('000001.SZ', 'mootdx')
         '000001'
+        >>> convert_from_ptrade_code('AAPL.US', 'yfinance')
+        'AAPL'
     """
     if "." not in code:
         return code
@@ -89,6 +101,12 @@ def convert_from_ptrade_code(code: str, target_source: str) -> str:
 
     elif target_source == "yahoo":
         # Yahoo uses .SS for Shanghai (same as PTrade)
+        return code
+
+    elif target_source == "yfinance":
+        # yfinance uses raw tickers: AAPL.US -> AAPL
+        if market == "US":
+            return symbol
         return code
 
     return code

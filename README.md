@@ -1,8 +1,8 @@
 # SimTradeData - 高效量化交易数据下载工具
 
-> **BaoStock + Mootdx 双数据源** | **统一下载命令** | **PTrade格式兼容** | **DuckDB + Parquet存储**
+> **BaoStock + Mootdx + yfinance 多数据源** | **A股 + 美股** | **PTrade格式兼容** | **DuckDB + Parquet存储**
 
-**SimTradeData** 是为 [SimTradeLab](https://github.com/kay-ou/SimTradeLab) 设计的高效数据下载工具。支持 BaoStock 和 Mootdx（通达信）双数据源，各取所长自动编排，采用 DuckDB 作为中间存储，导出为 Parquet 格式，支持高效的增量更新和数据查询。
+**SimTradeData** 是为 [SimTradeLab](https://github.com/kay-ou/SimTradeLab) 设计的高效数据下载工具。支持 A 股（BaoStock、Mootdx）和美股（yfinance）多数据源，各取所长自动编排，采用 DuckDB 作为中间存储，导出为 Parquet 格式，支持高效的增量更新和数据查询。
 
 ---
 
@@ -10,7 +10,7 @@
 
 ### 推荐组合：SimTradeData + SimTradeLab
 
-**完全兼容PTrade | 回测速度提升20倍以上**
+**完全兼容PTrade | A股+美股 | 回测速度提升20倍以上**
 
 [![SimTradeLab](https://img.shields.io/badge/SimTradeLab-量化回测框架-blue?style=for-the-badge)](https://github.com/kay-ou/SimTradeLab)
 
@@ -34,6 +34,7 @@
 - **除权除息**: 分红、送股、配股数据
 - **复权因子**: 前复权/后复权因子
 - **元数据**: 股票信息、交易日历、指数成分股、ST/停牌状态
+- **美股支持**: 6000+ 美股普通股，S&P 500 / NASDAQ-100 指数成分股
 
 ### 数据质量保障
 - **自动验证**: 写入前自动验证数据完整性
@@ -44,7 +45,8 @@
 
 ```
 data/
-├── simtradedata.duckdb          # DuckDB 数据库（下载时使用）
+├── simtradedata.duckdb          # DuckDB 数据库 - A股（下载时使用）
+├── us_stocks.duckdb             # DuckDB 数据库 - 美股（下载时使用）
 └── parquet/                     # 导出的 Parquet 文件
     ├── stocks/                  # 股票日线行情（每股票一个文件）
     │   ├── 000001.SZ.parquet
@@ -147,6 +149,26 @@ poetry run python scripts/download_mootdx.py
 poetry run python scripts/download_mootdx.py --skip-fundamentals
 ```
 
+**美股数据下载（yfinance）**
+
+使用 yfinance 免费获取美股数据，无需 API Key：
+
+```bash
+# 完整下载（6000+ 只美股，含 OHLCV + 财务 + 估值 + 元数据）
+poetry run python scripts/download_us.py
+
+# 指定股票（小规模测试）
+poetry run python scripts/download_us.py --symbols AAPL,MSFT,GOOGL
+
+# 仅下载行情数据（跳过耗时的逐股财务和元数据）
+poetry run python scripts/download_us.py --skip-fundamentals --skip-metadata
+
+# 指定起始日期
+poetry run python scripts/download_us.py --start-date 2020-01-01
+```
+
+美股代码格式：`AAPL.US`（与 A 股 `600000.SS` 保持 `{code}.{market}` 一致），数据存入独立数据库 `data/us_stocks.duckdb`。
+
 **TDX 官方数据包（最快获取完整历史行情）**
 
 ```bash
@@ -182,10 +204,11 @@ cp -r data/parquet/* /path/to/SimTradeLab/data/
 ```
 SimTradeData/
 ├── scripts/
-│   ├── download.py                # 统一下载入口（推荐）
+│   ├── download.py                # 统一下载入口（A股推荐）
 │   ├── download_efficient.py      # BaoStock 下载脚本
 │   ├── download_mootdx.py         # Mootdx（通达信API）下载脚本
 │   ├── download_tdx_day.py        # TDX 官方日线数据包下载导入脚本
+│   ├── download_us.py             # 美股下载脚本（yfinance）
 │   ├── import_tdx_day.py          # TDX .day 文件导入脚本
 │   └── export_parquet.py          # Parquet 导出脚本
 ├── simtradedata/
@@ -195,7 +218,8 @@ SimTradeData/
 │   │   ├── unified_fetcher.py   # BaoStock 统一数据获取（优化版）
 │   │   ├── mootdx_fetcher.py    # Mootdx 基础数据获取
 │   │   ├── mootdx_unified_fetcher.py  # Mootdx 统一数据获取
-│   │   └── mootdx_affair_fetcher.py   # Mootdx 财务数据获取
+│   │   ├── mootdx_affair_fetcher.py   # Mootdx 财务数据获取
+│   │   └── yfinance_fetcher.py  # yfinance 美股数据获取
 │   ├── processors/
 │   │   └── data_splitter.py     # 数据分流处理
 │   ├── writers/
@@ -203,7 +227,8 @@ SimTradeData/
 │   ├── validators/
 │   │   └── data_validator.py    # 数据质量验证
 │   ├── config/
-│   │   ├── field_mappings.py    # 字段映射配置
+│   │   ├── field_mappings.py    # A股字段映射配置
+│   │   ├── us_field_mappings.py # 美股字段映射配置
 │   │   └── mootdx_finvalue_map.py  # Mootdx 财务字段映射
 │   └── utils/
 │       ├── code_utils.py        # 股票代码转换
@@ -279,13 +304,14 @@ BATCH_SIZE = 20
 
 ### 数据源对比
 
-| 特性 | BaoStock | Mootdx API | TDX 官方数据包 |
-|------|----------|------------|---------------|
-| 速度 | 较慢 | 快 | 最快（一次性下载） |
-| 估值数据 | 有 (PE/PB/PS等) | 无 | 无 |
-| 财务数据 | 有（逐股查询） | 有（批量ZIP，更快） | 无 |
-| 历史起始 | 2015年 | 2015年 | 完整历史 |
-| 并发支持 | 不支持 | 支持 | N/A |
+| 特性 | BaoStock | Mootdx API | TDX 官方数据包 | yfinance (美股) |
+|------|----------|------------|---------------|----------------|
+| 市场 | A股 | A股 | A股 | 美股 |
+| 速度 | 较慢 | 快 | 最快（一次性下载） | 中等 |
+| 估值数据 | 有 (PE/PB/PS等) | 无 | 无 | 有（计算得出） |
+| 财务数据 | 有（逐股查询） | 有（批量ZIP，更快） | 无 | 有（逐股查询） |
+| 历史起始 | 2015年 | 2015年 | 完整历史 | 完整历史 |
+| API Key | 不需要 | 不需要 | N/A | 不需要 |
 
 > **推荐**：使用 `scripts/download.py` 统一命令，自动让 Mootdx 负责行情和财务，BaoStock 负责估值和状态，各取所长。
 
@@ -301,6 +327,15 @@ BATCH_SIZE = 20
 - 仅供学习研究使用
 
 ## 版本历史
+
+### v0.6.0 (2026-02-08) - 美股数据支持
+- 新增 yfinance 数据源，支持 6000+ 只美股普通股
+- 美股代码格式 `AAPL.US`，与 A 股 `{code}.{market}` 一致
+- 独立数据库 `data/us_stocks.duckdb`，与 A 股数据隔离
+- 5 阶段下载：股票列表 → 批量 OHLCV → 财务+估值 → 元数据+除权 → 全局数据
+- `yf.download()` 批量获取行情（每批 50 只），效率高
+- 支持 S&P 500 / NASDAQ-100 指数成分股（Wikipedia 爬取）
+- 增量更新：复用 `get_max_date()` 逻辑，仅下载新数据
 
 ### v0.5.0 (2026-02-01) - 统一下载命令
 - 新增 `scripts/download.py` 统一下载入口
@@ -340,6 +375,7 @@ BATCH_SIZE = 20
 - **SimTradeLab**: https://github.com/kay-ou/SimTradeLab
 - **BaoStock**: http://baostock.com/
 - **Mootdx**: https://github.com/mootdx/mootdx
+- **yfinance**: https://github.com/ranaroussi/yfinance
 
 ## 许可证
 
@@ -347,4 +383,4 @@ BATCH_SIZE = 20
 
 ---
 
-**项目状态**: 生产就绪 | **当前版本**: v0.5.0 | **最后更新**: 2026-02-01
+**项目状态**: 生产就绪 | **当前版本**: v0.6.0 | **最后更新**: 2026-02-08

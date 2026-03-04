@@ -72,13 +72,12 @@ data/
 
 已导出的 Parquet 数据包（2025年数据），可直接用于 SimTradeLab 回测：
 
-> 夸克网盘分享：[simtradelab_data_2025_parquet.zip](https://pan.quark.cn/s/52c14827a6c5)
+> 夸克网盘分享：[data.zip](https://pan.quark.cn/s/0e20cde4ac2a)
 >
-> 提取码：5DdN
 
 ```bash
 # 解压到 SimTradeLab 数据目录
-unzip simtradelab_data_2025_parquet.zip -d /path/to/SimTradeLab/data/
+unzip data.zip -d /path/to/SimTradeLab/data/
 ```
 
 ### 方式二：自行下载数据
